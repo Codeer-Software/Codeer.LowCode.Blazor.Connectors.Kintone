@@ -1,0 +1,95 @@
+{
+  "Name": "OrderLine",
+  "Fields": [
+    {
+      "JsonFieldSettings": {
+        "JsonNodes": [
+          {
+            "Key": "Product"
+          },
+          {
+            "Key": "Quantity",
+            "NodeType": "Number"
+          },
+          {
+            "Key": "UnitPrice",
+            "NodeType": "Number"
+          },
+          {
+            "Key": "Subtotal",
+            "NodeType": "Number"
+          }
+        ]
+      },
+      "Name": "Json",
+      "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.JsonFieldDesign"
+    },
+    {
+      "SearchCondition": {
+        "LimitCount": 50,
+        "ModuleName": "Product"
+      },
+      "ValueVariable": "ProductName.Value",
+      "DisplayTextVariable": "ProductName.Value",
+      "DbColumn": "Product",
+      "DisplayName": "商品",
+      "Name": "Product",
+      "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.SelectFieldDesign"
+    },
+    {
+      "DbColumn": "Quantity",
+      "DisplayName": "数量",
+      "Name": "Quantity",
+      "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.NumberFieldDesign"
+    },
+    {
+      "DbColumn": "UnitPrice",
+      "DisplayName": "単価",
+      "Name": "UnitPrice",
+      "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.NumberFieldDesign"
+    },
+    {
+      "DbColumn": "Subtotal",
+      "DisplayName": "小計",
+      "Name": "Subtotal",
+      "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.NumberFieldDesign"
+    }
+  ],
+  "ListLayouts": {
+    "": {
+      "Elements": [
+        [
+          {
+            "FieldName": "Product",
+            "Width": 240,
+            "CanUserSort": false
+          },
+          {
+            "FieldName": "Quantity",
+            "Width": 100,
+            "CanUserSort": false
+          },
+          {
+            "FieldName": "UnitPrice",
+            "Width": 120,
+            "CanUserSort": false
+          },
+          {
+            "FieldName": "Subtotal",
+            "Width": 120,
+            "CanUserSort": false,
+            "IsViewOnly": true
+          }
+        ]
+      ]
+    }
+  },
+  "SearchLayouts": {
+    "": {
+      "Layout": {
+        "Name": "",
+        "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.SearchGridLayoutDesign"
+      }
+    }
+  }
+}

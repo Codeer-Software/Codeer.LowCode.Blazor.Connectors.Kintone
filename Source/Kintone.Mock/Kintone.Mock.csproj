@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>Kintone.Mock</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Content Update="mock-data.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,17 @@
+{
+  "Name": "顧客ランク",
+  "Members": [
+    {
+      "Name": "A",
+      "Value": "A"
+    },
+    {
+      "Name": "B",
+      "Value": "B"
+    },
+    {
+      "Name": "C",
+      "Value": "C"
+    }
+  ]
+}

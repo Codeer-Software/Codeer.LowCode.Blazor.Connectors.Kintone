@@ -1,0 +1,443 @@
+{
+  "Tables": [
+    {
+      "Name": "Customer",
+      "Columns": [
+        {
+          "Name": "$id",
+          "Kind": "Number",
+          "FieldType": "__ID__",
+          "Label": "ID",
+          "ReadOnly": true
+        },
+        {
+          "Name": "$revision",
+          "Kind": "Number",
+          "FieldType": "__REVISION__",
+          "Label": "Revision",
+          "ReadOnly": true
+        },
+        {
+          "Name": "CustomerCode",
+          "Kind": "String",
+          "FieldType": "SINGLE_LINE_TEXT",
+          "Label": "顧客コード",
+          "Required": true,
+          "Unique": true
+        },
+        {
+          "Name": "CustomerName",
+          "Kind": "String",
+          "FieldType": "SINGLE_LINE_TEXT",
+          "Label": "顧客名",
+          "Required": true
+        },
+        {
+          "Name": "Status",
+          "Kind": "String",
+          "FieldType": "DROP_DOWN",
+          "Label": "状態",
+          "Options": [
+            "見込み",
+            "取引中",
+            "休止"
+          ]
+        },
+        {
+          "Name": "Rank",
+          "Kind": "String",
+          "FieldType": "RADIO_BUTTON",
+          "Label": "ランク",
+          "Required": true,
+          "Options": [
+            "A",
+            "B",
+            "C"
+          ]
+        },
+        {
+          "Name": "Tags",
+          "Kind": "Json",
+          "FieldType": "CHECK_BOX",
+          "Label": "タグ",
+          "Options": [
+            "重要",
+            "新規",
+            "要フォロー"
+          ]
+        },
+        {
+          "Name": "Website",
+          "Kind": "String",
+          "FieldType": "LINK",
+          "Label": "Web サイト"
+        },
+        {
+          "Name": "Note",
+          "Kind": "String",
+          "FieldType": "MULTI_LINE_TEXT",
+          "Label": "メモ"
+        },
+        {
+          "Name": "CreditLimit",
+          "Kind": "Number",
+          "FieldType": "NUMBER",
+          "Label": "与信限度額"
+        },
+        {
+          "Name": "Since",
+          "Kind": "Date",
+          "FieldType": "DATE",
+          "Label": "取引開始日"
+        },
+        {
+          "Name": "レコード番号",
+          "Kind": "String",
+          "FieldType": "RECORD_NUMBER",
+          "Label": "レコード番号",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作成者",
+          "Kind": "String",
+          "FieldType": "CREATOR",
+          "Label": "作成者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作成日時",
+          "Kind": "DateTime",
+          "FieldType": "CREATED_TIME",
+          "Label": "作成日時",
+          "ReadOnly": true
+        },
+        {
+          "Name": "更新者",
+          "Kind": "String",
+          "FieldType": "MODIFIER",
+          "Label": "更新者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "更新日時",
+          "Kind": "DateTime",
+          "FieldType": "UPDATED_TIME",
+          "Label": "更新日時",
+          "ReadOnly": true
+        },
+        {
+          "Name": "ステータス",
+          "Kind": "String",
+          "FieldType": "STATUS",
+          "Label": "ステータス",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作業者",
+          "Kind": "Json",
+          "FieldType": "STATUS_ASSIGNEE",
+          "Label": "作業者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "カテゴリー",
+          "Kind": "Json",
+          "FieldType": "CATEGORY",
+          "Label": "カテゴリー",
+          "ReadOnly": true
+        }
+      ]
+    },
+    {
+      "Name": "Product",
+      "Columns": [
+        {
+          "Name": "$id",
+          "Kind": "Number",
+          "FieldType": "__ID__",
+          "Label": "ID",
+          "ReadOnly": true
+        },
+        {
+          "Name": "$revision",
+          "Kind": "Number",
+          "FieldType": "__REVISION__",
+          "Label": "Revision",
+          "ReadOnly": true
+        },
+        {
+          "Name": "ProductCode",
+          "Kind": "String",
+          "FieldType": "SINGLE_LINE_TEXT",
+          "Label": "商品コード",
+          "Required": true,
+          "Unique": true
+        },
+        {
+          "Name": "ProductName",
+          "Kind": "String",
+          "FieldType": "SINGLE_LINE_TEXT",
+          "Label": "商品名"
+        },
+        {
+          "Name": "UnitPrice",
+          "Kind": "Number",
+          "FieldType": "NUMBER",
+          "Label": "単価"
+        },
+        {
+          "Name": "Category",
+          "Kind": "String",
+          "FieldType": "DROP_DOWN",
+          "Label": "分類",
+          "Options": [
+            "文具",
+            "紙製品",
+            "事務機器"
+          ]
+        },
+        {
+          "Name": "レコード番号",
+          "Kind": "String",
+          "FieldType": "RECORD_NUMBER",
+          "Label": "レコード番号",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作成者",
+          "Kind": "String",
+          "FieldType": "CREATOR",
+          "Label": "作成者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作成日時",
+          "Kind": "DateTime",
+          "FieldType": "CREATED_TIME",
+          "Label": "作成日時",
+          "ReadOnly": true
+        },
+        {
+          "Name": "更新者",
+          "Kind": "String",
+          "FieldType": "MODIFIER",
+          "Label": "更新者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "更新日時",
+          "Kind": "DateTime",
+          "FieldType": "UPDATED_TIME",
+          "Label": "更新日時",
+          "ReadOnly": true
+        },
+        {
+          "Name": "ステータス",
+          "Kind": "String",
+          "FieldType": "STATUS",
+          "Label": "ステータス",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作業者",
+          "Kind": "Json",
+          "FieldType": "STATUS_ASSIGNEE",
+          "Label": "作業者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "カテゴリー",
+          "Kind": "Json",
+          "FieldType": "CATEGORY",
+          "Label": "カテゴリー",
+          "ReadOnly": true
+        }
+      ]
+    },
+    {
+      "Name": "Order",
+      "Columns": [
+        {
+          "Name": "$id",
+          "Kind": "Number",
+          "FieldType": "__ID__",
+          "Label": "ID",
+          "ReadOnly": true
+        },
+        {
+          "Name": "$revision",
+          "Kind": "Number",
+          "FieldType": "__REVISION__",
+          "Label": "Revision",
+          "ReadOnly": true
+        },
+        {
+          "Name": "OrderNo",
+          "Kind": "String",
+          "FieldType": "SINGLE_LINE_TEXT",
+          "Label": "受注番号",
+          "Required": true,
+          "Unique": true
+        },
+        {
+          "Name": "CustomerCode",
+          "Kind": "String",
+          "FieldType": "SINGLE_LINE_TEXT",
+          "Label": "顧客コード",
+          "Lookup": true
+        },
+        {
+          "Name": "CustomerNameCopy",
+          "Kind": "String",
+          "FieldType": "SINGLE_LINE_TEXT",
+          "Label": "顧客名",
+          "ReadOnly": true
+        },
+        {
+          "Name": "OrderDate",
+          "Kind": "Date",
+          "FieldType": "DATE",
+          "Label": "受注日"
+        },
+        {
+          "Name": "Stage",
+          "Kind": "String",
+          "FieldType": "DROP_DOWN",
+          "Label": "進捗",
+          "Options": [
+            "仮",
+            "受注",
+            "出荷済"
+          ]
+        },
+        {
+          "Name": "DeliveryAt",
+          "Kind": "DateTime",
+          "FieldType": "DATETIME",
+          "Label": "納品日時"
+        },
+        {
+          "Name": "StartTime",
+          "Kind": "Time",
+          "FieldType": "TIME",
+          "Label": "作業開始時刻"
+        },
+        {
+          "Name": "Assignee",
+          "Kind": "Json",
+          "FieldType": "USER_SELECT",
+          "Label": "担当者"
+        },
+        {
+          "Name": "Memo",
+          "Kind": "String",
+          "FieldType": "RICH_TEXT",
+          "Label": "メモ"
+        },
+        {
+          "Name": "Attachments",
+          "Kind": "Json",
+          "FieldType": "FILE",
+          "Label": "添付ファイル",
+          "ReadOnly": true
+        },
+        {
+          "Name": "Lines",
+          "Kind": "Json",
+          "FieldType": "SUBTABLE",
+          "Label": "明細",
+          "Fields": [
+            {
+              "Name": "Product",
+              "Kind": "String",
+              "FieldType": "SINGLE_LINE_TEXT",
+              "Label": "商品"
+            },
+            {
+              "Name": "Quantity",
+              "Kind": "Number",
+              "FieldType": "NUMBER",
+              "Label": "数量"
+            },
+            {
+              "Name": "UnitPrice",
+              "Kind": "Number",
+              "FieldType": "NUMBER",
+              "Label": "単価"
+            },
+            {
+              "Name": "Subtotal",
+              "Kind": "Number",
+              "FieldType": "CALC",
+              "Label": "小計",
+              "ReadOnly": true
+            }
+          ]
+        },
+        {
+          "Name": "Total",
+          "Kind": "Number",
+          "FieldType": "CALC",
+          "Label": "合計",
+          "ReadOnly": true
+        },
+        {
+          "Name": "レコード番号",
+          "Kind": "String",
+          "FieldType": "RECORD_NUMBER",
+          "Label": "レコード番号",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作成者",
+          "Kind": "String",
+          "FieldType": "CREATOR",
+          "Label": "作成者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作成日時",
+          "Kind": "DateTime",
+          "FieldType": "CREATED_TIME",
+          "Label": "作成日時",
+          "ReadOnly": true
+        },
+        {
+          "Name": "更新者",
+          "Kind": "String",
+          "FieldType": "MODIFIER",
+          "Label": "更新者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "更新日時",
+          "Kind": "DateTime",
+          "FieldType": "UPDATED_TIME",
+          "Label": "更新日時",
+          "ReadOnly": true
+        },
+        {
+          "Name": "ステータス",
+          "Kind": "String",
+          "FieldType": "STATUS",
+          "Label": "ステータス",
+          "ReadOnly": true
+        },
+        {
+          "Name": "作業者",
+          "Kind": "Json",
+          "FieldType": "STATUS_ASSIGNEE",
+          "Label": "作業者",
+          "ReadOnly": true
+        },
+        {
+          "Name": "カテゴリー",
+          "Kind": "Json",
+          "FieldType": "CATEGORY",
+          "Label": "カテゴリー",
+          "ReadOnly": true
+        }
+      ]
+    }
+  ]
+}

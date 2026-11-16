@@ -1,0 +1,128 @@
+// kintone のモックのデータ (架空のサンプル)。書き方は Docs/KintoneMock.md の「データのファイル」。
+{
+  "users": [
+    {"code": "clb_api", "password": "mock-clb-api-pass", "name": "CLB 連携"},
+    {"code": "yamada.taro", "password": "mock-yamada-pass", "name": "山田 太郎"},
+    {"code": "suzuki.hanako", "password": "mock-suzuki-pass", "name": "鈴木 花子"},
+    {"code": "tanaka.ichiro", "password": "mock-tanaka-pass", "name": "田中 一郎", "permissions": {"1": ["view"], "2": ["view"], "3": ["view"]}}
+  ],
+  "apps": [
+    {
+      "id": 1, "name": "顧客", "code": "",
+      "tokens": [
+        {"token": "mock-token-customer-all", "permissions": ["view", "add", "edit", "delete"]},
+        {"token": "mock-token-customer-view", "permissions": ["view"]}
+      ],
+      "fields": {
+        "CustomerCode": {"type": "SINGLE_LINE_TEXT", "label": "顧客コード", "required": true, "unique": true},
+        "CustomerName": {"type": "SINGLE_LINE_TEXT", "label": "顧客名", "required": true},
+        "Status": {"type": "DROP_DOWN", "label": "状態", "options": ["見込み", "取引中", "休止"]},
+        "Rank": {"type": "RADIO_BUTTON", "label": "ランク", "options": ["A", "B", "C"], "defaultValue": "B"},
+        "Tags": {"type": "CHECK_BOX", "label": "タグ", "options": ["重要", "新規", "要フォロー"]},
+        "Website": {"type": "LINK", "label": "Web サイト", "protocol": "WEB"},
+        "Note": {"type": "MULTI_LINE_TEXT", "label": "メモ"},
+        "CreditLimit": {"type": "NUMBER", "label": "与信限度額"},
+        "Since": {"type": "DATE", "label": "取引開始日"}
+      },
+      "records": [
+        {"CustomerCode": "C-001", "CustomerName": "青葉商事株式会社", "Status": "取引中", "Rank": "A", "Tags": ["重要"], "Website": "https://aoba.example.com", "Note": "月末締め・翌月末払い", "CreditLimit": "5000000", "Since": "2019-04-01", "$createdTime": "2026-01-01T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-002", "CustomerName": "港南物産", "Status": "取引中", "Rank": "B", "Tags": ["重要", "要フォロー"], "Website": "https://konan.example.com", "Note": "", "CreditLimit": "1200000", "Since": "2020-07-15", "$createdTime": "2026-01-02T00:00:00Z", "$creator": "clb_api", "$revision": 3},
+        {"CustomerCode": "C-003", "CustomerName": "北星工業株式会社", "Status": "見込み", "Rank": "C", "Tags": ["新規"], "Website": "", "Note": "展示会で名刺交換", "CreditLimit": "", "Since": "", "$createdTime": "2026-01-03T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-004", "CustomerName": "すずらん文具店", "Status": "取引中", "Rank": "B", "Tags": [], "Website": "https://suzuran.example.jp", "Note": "", "CreditLimit": "300000", "Since": "2021-01-10", "$createdTime": "2026-01-04T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-005", "CustomerName": "東西ロジスティクス", "Status": "休止", "Rank": "C", "Tags": ["要フォロー"], "Website": "", "Note": "2025 年から取引休止", "CreditLimit": "0", "Since": "2018-11-20", "$createdTime": "2026-01-05T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-006", "CustomerName": "ダブル\"クォート\"商会", "Status": "見込み", "Rank": "B", "Tags": [], "Website": "", "Note": "名前に \" と \\ を含む行 (エスケープの確かめ用)", "CreditLimit": "", "Since": "2026-02-01", "$createdTime": "2026-01-06T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-007", "CustomerName": "みなと印刷", "Status": "取引中", "Rank": "A", "Tags": ["重要"], "Website": "https://minato-print.example.com", "Note": "複数行の\nメモ", "CreditLimit": "2500000", "Since": "2017-06-01", "$createdTime": "2026-01-07T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-008", "CustomerName": "山並フーズ", "Status": "", "Rank": "B", "Tags": [], "Website": "", "Note": "", "CreditLimit": "", "Since": "", "$createdTime": "2026-01-08T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-009", "CustomerName": "桜川電機株式会社", "Status": "取引中", "Rank": "A", "Tags": ["重要", "新規"], "Website": "https://sakuragawa.example.com", "Note": "", "CreditLimit": "8000000", "Since": "2025-10-01", "$createdTime": "2026-01-09T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-010", "CustomerName": "こもれび書房", "Status": "見込み", "Rank": "C", "Tags": ["新規", "要フォロー"], "Website": "", "Note": "", "CreditLimit": "150000", "Since": "2026-09-30", "$createdTime": "2026-01-10T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-011", "CustomerName": "大河建設", "Status": "取引中", "Rank": "B", "Tags": [], "Website": "https://taiga.example.co.jp", "Note": "", "CreditLimit": "3000000", "Since": "2016-03-31", "$createdTime": "2026-01-11T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-012", "CustomerName": "ひばり薬局", "Status": "休止", "Rank": "C", "Tags": [], "Website": "", "Note": "", "CreditLimit": "", "Since": "2015-12-01", "$createdTime": "2026-01-12T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-013", "CustomerName": "Blue Harbor Trading", "Status": "取引中", "Rank": "A", "Tags": ["重要"], "Website": "https://blueharbor.example.com", "Note": "英語表記の顧客", "CreditLimit": "4500000.5", "Since": "2022-08-08", "$createdTime": "2026-01-13T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-014", "CustomerName": "あさひ精機", "Status": "見込み", "Rank": "B", "Tags": [], "Website": "", "Note": "", "CreditLimit": "", "Since": "", "$createdTime": "2026-01-14T00:00:00Z", "$creator": "clb_api"},
+        {"CustomerCode": "C-015", "CustomerName": "港南物産 第二営業所", "Status": "取引中", "Rank": "B", "Tags": ["要フォロー"], "Website": "", "Note": "C-002 の支店", "CreditLimit": "600000", "Since": "2024-04-01", "$createdTime": "2026-01-15T00:00:00Z", "$creator": "clb_api"}
+      ]
+    },
+    {
+      "id": 2, "name": "商品", "code": "ITEM",
+      "tokens": [
+        {"token": "mock-token-item-all", "permissions": ["view", "add", "edit", "delete"]},
+        {"token": "mock-token-item-view", "permissions": ["view"]}
+      ],
+      "fields": {
+        "ProductCode": {"type": "SINGLE_LINE_TEXT", "label": "商品コード", "required": true, "unique": true},
+        "ProductName": {"type": "SINGLE_LINE_TEXT", "label": "商品名"},
+        "UnitPrice": {"type": "NUMBER", "label": "単価"},
+        "Category": {"type": "DROP_DOWN", "label": "分類", "options": ["文具", "紙製品", "事務機器"]}
+      },
+      "records": [
+        {"ProductCode": "P-001", "ProductName": "A4 コピー用紙 500 枚", "UnitPrice": "480", "Category": "紙製品", "$createdTime": "2026-01-01T01:00:00Z"},
+        {"ProductCode": "P-002", "ProductName": "ボールペン 黒 10 本", "UnitPrice": "800", "Category": "文具", "$createdTime": "2026-01-02T01:00:00Z"},
+        {"ProductCode": "P-003", "ProductName": "クリアファイル 20 枚", "UnitPrice": "350", "Category": "文具", "$createdTime": "2026-01-03T01:00:00Z"},
+        {"ProductCode": "P-004", "ProductName": "シュレッダー 小型", "UnitPrice": "12800", "Category": "事務機器", "$createdTime": "2026-01-04T01:00:00Z"},
+        {"ProductCode": "P-005", "ProductName": "ホッチキス", "UnitPrice": "650", "Category": "文具", "$createdTime": "2026-01-05T01:00:00Z"},
+        {"ProductCode": "P-006", "ProductName": "付箋 75mm", "UnitPrice": "220", "Category": "紙製品", "$createdTime": "2026-01-06T01:00:00Z"},
+        {"ProductCode": "P-007", "ProductName": "ラベルプリンター", "UnitPrice": "9800", "Category": "", "$createdTime": "2026-01-07T01:00:00Z"},
+        {"ProductCode": "P-008", "ProductName": "封筒 長形 3 号 100 枚", "UnitPrice": "540", "Category": "紙製品", "$createdTime": "2026-01-08T01:00:00Z"}
+      ]
+    },
+    {
+      "id": 3, "name": "受注", "code": "", "statuses": ["未処理", "処理中", "完了"],
+      "tokens": [
+        {"token": "mock-token-order-all", "permissions": ["view", "add", "edit", "delete"]},
+        {"token": "mock-token-order-view", "permissions": ["view"]}
+      ],
+      "fields": {
+        "OrderNo": {"type": "SINGLE_LINE_TEXT", "label": "受注番号", "required": true, "unique": true},
+        "CustomerCode": {"type": "SINGLE_LINE_TEXT", "label": "顧客コード", "lookup": {"app": 1, "relatedKeyField": "CustomerCode", "fieldMappings": {"CustomerNameCopy": "CustomerName"}}},
+        "CustomerNameCopy": {"type": "SINGLE_LINE_TEXT", "label": "顧客名"},
+        "OrderDate": {"type": "DATE", "label": "受注日"},
+        "Stage": {"type": "DROP_DOWN", "label": "進捗", "options": ["仮", "受注", "出荷済"]},
+        "DeliveryAt": {"type": "DATETIME", "label": "納品日時"},
+        "StartTime": {"type": "TIME", "label": "作業開始時刻"},
+        "Assignee": {"type": "USER_SELECT", "label": "担当者"},
+        "Memo": {"type": "RICH_TEXT", "label": "メモ"},
+        "Attachments": {"type": "FILE", "label": "添付ファイル"},
+        "Lines": {"type": "SUBTABLE", "label": "明細", "fields": {"Product": {"type": "SINGLE_LINE_TEXT", "label": "商品"}, "Quantity": {"type": "NUMBER", "label": "数量"}, "UnitPrice": {"type": "NUMBER", "label": "単価"}, "Subtotal": {"type": "CALC", "label": "小計", "expression": "Quantity * UnitPrice"}}},
+        "Total": {"type": "CALC", "label": "合計", "expression": "SUM(Subtotal)"}
+      },
+      "records": [
+        {"OrderNo": "SO-2026-0001", "CustomerCode": "C-004", "OrderDate": "2026-02-08", "Stage": "受注", "DeliveryAt": "2026-02-08T01:30:00Z", "StartTime": "09:15", "Assignee": ["suzuki.hanako"], "Memo": "", "Attachments": [{"name": "見積書_1.pdf", "contentType": "application/pdf", "size": "20480"}], "Lines": [{"Product": "ボールペン 黒 10 本", "Quantity": "2", "UnitPrice": "800"}], "$createdTime": "2026-02-01T03:00:00Z", "$creator": "yamada.taro", "$status": "処理中", "$assignee": ["yamada.taro"]},
+        {"OrderNo": "SO-2026-0002", "CustomerCode": "C-007", "OrderDate": "2026-03-15", "Stage": "出荷済", "DeliveryAt": "2026-03-15T02:30:00Z", "StartTime": "10:30", "Assignee": [], "Memo": "", "Attachments": [{"name": "見積書_2.pdf", "contentType": "application/pdf", "size": "20480"}], "Lines": [{"Product": "クリアファイル 20 枚", "Quantity": "3", "UnitPrice": "350"}, {"Product": "シュレッダー 小型", "Quantity": "4", "UnitPrice": "12800"}], "$createdTime": "2026-02-02T03:00:00Z", "$creator": "suzuki.hanako", "$status": "完了"},
+        {"OrderNo": "SO-2026-0003", "CustomerCode": "C-010", "OrderDate": "2026-04-22", "Stage": "仮", "DeliveryAt": "2026-04-22T03:30:00Z", "StartTime": "11:45", "Assignee": ["yamada.taro"], "Memo": "<div>受注 3 の<b>メモ</b></div>", "Attachments": [], "Lines": [{"Product": "シュレッダー 小型", "Quantity": "4", "UnitPrice": "12800"}, {"Product": "ホッチキス", "Quantity": "5", "UnitPrice": "650"}, {"Product": "付箋 75mm", "Quantity": "1", "UnitPrice": "220"}], "$createdTime": "2026-02-03T03:00:00Z", "$creator": "yamada.taro", "$status": "未処理"},
+        {"OrderNo": "SO-2026-0004", "CustomerCode": "C-013", "OrderDate": "2026-05-02", "Stage": "受注", "DeliveryAt": "", "StartTime": "12:00", "Assignee": ["suzuki.hanako"], "Memo": "", "Attachments": [], "Lines": [], "$createdTime": "2026-02-04T03:00:00Z", "$creator": "suzuki.hanako", "$status": "処理中", "$assignee": ["yamada.taro"]},
+        {"OrderNo": "SO-2026-0005", "CustomerCode": "", "OrderDate": "2026-06-09", "Stage": "出荷済", "DeliveryAt": "2026-06-09T05:30:00Z", "StartTime": "", "Assignee": [], "Memo": "", "Attachments": [], "Lines": [{"Product": "付箋 75mm", "Quantity": "1", "UnitPrice": "220"}], "$createdTime": "2026-02-05T03:00:00Z", "$creator": "yamada.taro", "$status": "完了"},
+        {"OrderNo": "SO-2026-0006", "CustomerCode": "C-004", "OrderDate": "2026-07-16", "Stage": "仮", "DeliveryAt": "2026-07-16T06:30:00Z", "StartTime": "14:30", "Assignee": ["yamada.taro"], "Memo": "<div>受注 6 の<b>メモ</b></div>", "Attachments": [], "Lines": [{"Product": "ラベルプリンター", "Quantity": "2", "UnitPrice": "9800"}, {"Product": "封筒 長形 3 号 100 枚", "Quantity": "3", "UnitPrice": "540"}], "$createdTime": "2026-02-06T03:00:00Z", "$creator": "suzuki.hanako", "$status": "未処理"},
+        {"OrderNo": "SO-2026-0007", "CustomerCode": "C-007", "OrderDate": "2026-08-23", "Stage": "受注", "DeliveryAt": "2026-08-23T07:30:00Z", "StartTime": "15:45", "Assignee": ["suzuki.hanako"], "Memo": "", "Attachments": [{"name": "見積書_7.pdf", "contentType": "application/pdf", "size": "20480"}], "Lines": [{"Product": "封筒 長形 3 号 100 枚", "Quantity": "3", "UnitPrice": "540"}, {"Product": "A4 コピー用紙 500 枚", "Quantity": "4", "UnitPrice": "480"}, {"Product": "ボールペン 黒 10 本", "Quantity": "5", "UnitPrice": "800"}], "$createdTime": "2026-02-07T03:00:00Z", "$creator": "yamada.taro", "$status": "処理中", "$assignee": ["yamada.taro"]},
+        {"OrderNo": "SO-2026-0008", "CustomerCode": "C-010", "OrderDate": "2026-09-03", "Stage": "出荷済", "DeliveryAt": "", "StartTime": "16:00", "Assignee": [], "Memo": "", "Attachments": [], "Lines": [], "$createdTime": "2026-02-08T03:00:00Z", "$creator": "suzuki.hanako", "$status": "完了"},
+        {"OrderNo": "SO-2026-0009", "CustomerCode": "C-013", "OrderDate": "", "Stage": "仮", "DeliveryAt": "2026-10-10T00:30:00Z", "StartTime": "17:15", "Assignee": ["yamada.taro"], "Memo": "<div>受注 9 の<b>メモ</b></div>", "Attachments": [], "Lines": [{"Product": "ボールペン 黒 10 本", "Quantity": "5", "UnitPrice": "800"}], "$createdTime": "2026-02-09T03:00:00Z", "$creator": "yamada.taro", "$status": "未処理"},
+        {"OrderNo": "SO-2026-0010", "CustomerCode": "C-001", "OrderDate": "2026-01-17", "Stage": "受注", "DeliveryAt": "2026-01-17T01:30:00Z", "StartTime": "", "Assignee": ["suzuki.hanako"], "Memo": "", "Attachments": [], "Lines": [{"Product": "クリアファイル 20 枚", "Quantity": "1", "UnitPrice": "350"}, {"Product": "シュレッダー 小型", "Quantity": "2", "UnitPrice": "12800"}], "$createdTime": "2026-02-10T03:00:00Z", "$creator": "suzuki.hanako", "$status": "処理中", "$assignee": ["yamada.taro"]},
+        {"OrderNo": "SO-2026-0011", "CustomerCode": "C-004", "OrderDate": "2026-02-24", "Stage": "出荷済", "DeliveryAt": "2026-02-24T02:30:00Z", "StartTime": "09:45", "Assignee": [], "Memo": "", "Attachments": [], "Lines": [{"Product": "シュレッダー 小型", "Quantity": "2", "UnitPrice": "12800"}, {"Product": "ホッチキス", "Quantity": "3", "UnitPrice": "650"}, {"Product": "付箋 75mm", "Quantity": "4", "UnitPrice": "220"}], "$createdTime": "2026-02-11T03:00:00Z", "$creator": "yamada.taro", "$status": "完了"},
+        {"OrderNo": "SO-2026-0012", "CustomerCode": "C-007", "OrderDate": "2026-03-04", "Stage": "", "DeliveryAt": "", "StartTime": "10:00", "Assignee": ["yamada.taro"], "Memo": "<div>受注 12 の<b>メモ</b></div>", "Attachments": [], "Lines": [], "$createdTime": "2026-02-12T03:00:00Z", "$creator": "suzuki.hanako", "$status": "未処理"},
+        {"OrderNo": "SO-2026-0013", "CustomerCode": "C-010", "OrderDate": "2026-04-11", "Stage": "受注", "DeliveryAt": "2026-04-11T04:30:00Z", "StartTime": "11:15", "Assignee": ["suzuki.hanako"], "Memo": "", "Attachments": [], "Lines": [{"Product": "付箋 75mm", "Quantity": "4", "UnitPrice": "220"}], "$createdTime": "2026-02-13T03:00:00Z", "$creator": "yamada.taro", "$status": "処理中", "$assignee": ["yamada.taro"]},
+        {"OrderNo": "SO-2026-0014", "CustomerCode": "", "OrderDate": "2026-05-18", "Stage": "出荷済", "DeliveryAt": "2026-05-18T05:30:00Z", "StartTime": "12:30", "Assignee": [], "Memo": "", "Attachments": [], "Lines": [{"Product": "ラベルプリンター", "Quantity": "5", "UnitPrice": "9800"}, {"Product": "封筒 長形 3 号 100 枚", "Quantity": "1", "UnitPrice": "540"}], "$createdTime": "2026-02-14T03:00:00Z", "$creator": "suzuki.hanako", "$status": "完了"},
+        {"OrderNo": "SO-2026-0015", "CustomerCode": "C-001", "OrderDate": "2026-06-25", "Stage": "仮", "DeliveryAt": "2026-06-25T06:30:00Z", "StartTime": "", "Assignee": ["yamada.taro"], "Memo": "<div>受注 15 の<b>メモ</b></div>", "Attachments": [], "Lines": [{"Product": "封筒 長形 3 号 100 枚", "Quantity": "1", "UnitPrice": "540"}, {"Product": "A4 コピー用紙 500 枚", "Quantity": "2", "UnitPrice": "480"}, {"Product": "ボールペン 黒 10 本", "Quantity": "3", "UnitPrice": "800"}], "$createdTime": "2026-02-15T03:00:00Z", "$creator": "yamada.taro", "$status": "未処理"},
+        {"OrderNo": "SO-2026-0016", "CustomerCode": "C-004", "OrderDate": "2026-07-05", "Stage": "受注", "DeliveryAt": "", "StartTime": "14:00", "Assignee": ["suzuki.hanako"], "Memo": "", "Attachments": [], "Lines": [], "$createdTime": "2026-02-16T03:00:00Z", "$creator": "suzuki.hanako", "$status": "処理中", "$assignee": ["yamada.taro"]},
+        {"OrderNo": "SO-2026-0017", "CustomerCode": "C-007", "OrderDate": "2026-08-12", "Stage": "出荷済", "DeliveryAt": "2026-08-12T08:30:00Z", "StartTime": "15:15", "Assignee": [], "Memo": "", "Attachments": [], "Lines": [{"Product": "ボールペン 黒 10 本", "Quantity": "3", "UnitPrice": "800"}], "$createdTime": "2026-02-17T03:00:00Z", "$creator": "yamada.taro", "$status": "完了"},
+        {"OrderNo": "SO-2026-0018", "CustomerCode": "C-010", "OrderDate": "2026-09-19", "Stage": "仮", "DeliveryAt": "2026-09-19T00:30:00Z", "StartTime": "16:30", "Assignee": ["yamada.taro"], "Memo": "<div>受注 18 の<b>メモ</b></div>", "Attachments": [], "Lines": [{"Product": "クリアファイル 20 枚", "Quantity": "4", "UnitPrice": "350"}, {"Product": "シュレッダー 小型", "Quantity": "5", "UnitPrice": "12800"}], "$createdTime": "2026-02-18T03:00:00Z", "$creator": "suzuki.hanako", "$status": "未処理"},
+        {"OrderNo": "SO-2026-0019", "CustomerCode": "C-013", "OrderDate": "2026-10-26", "Stage": "受注", "DeliveryAt": "2026-10-26T01:30:00Z", "StartTime": "17:45", "Assignee": ["suzuki.hanako"], "Memo": "", "Attachments": [], "Lines": [{"Product": "シュレッダー 小型", "Quantity": "5", "UnitPrice": "12800"}, {"Product": "ホッチキス", "Quantity": "1", "UnitPrice": "650"}, {"Product": "付箋 75mm", "Quantity": "2", "UnitPrice": "220"}], "$createdTime": "2026-02-19T03:00:00Z", "$creator": "yamada.taro", "$status": "処理中", "$assignee": ["yamada.taro"]},
+        {"OrderNo": "SO-2026-0020", "CustomerCode": "C-001", "OrderDate": "2026-01-06", "Stage": "出荷済", "DeliveryAt": "", "StartTime": "", "Assignee": [], "Memo": "", "Attachments": [], "Lines": [], "$createdTime": "2026-02-20T03:00:00Z", "$creator": "suzuki.hanako", "$status": "完了"}
+      ]
+    },
+    {
+      "id": 4, "name": "ゲスト案件", "code": "", "guestSpaceId": 5,
+      "tokens": [
+        {"token": "mock-token-guest-all", "permissions": ["view", "add", "edit", "delete"]},
+        {"token": "mock-token-guest-view", "permissions": ["view"]}
+      ],
+      "fields": {
+        "Title": {"type": "SINGLE_LINE_TEXT", "label": "件名", "required": true},
+        "Budget": {"type": "NUMBER", "label": "予算"}
+      },
+      "records": [
+        {"Title": "新拠点の内装工事", "Budget": "3500000"},
+        {"Title": "社内ポータル改修", "Budget": ""},
+        {"Title": "展示会ブース設営", "Budget": "800000"}
+      ]
+    }
+  ]
+}
