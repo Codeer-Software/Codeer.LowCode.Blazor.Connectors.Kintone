@@ -378,13 +378,20 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         /// <summary>
         /// 列の種類に合わせたクエリの値。数値の列に数値でない文字を当てるなど、合う行が無いと決まる値は null。
         /// </summary>
-        internal static string? LiteralFor(KintoneColumnDefinition column, object value)
+        /// <param name="exactNumberText">
+        /// 値を文字で突き合わせる所 (結合・集めた値との一致) で true。数値の列に当てる文字は、数値の文字 (NumberText) と同じ書き方のものだけ通す
+        /// ("01" は 1 と一致しない)。条件の値 (比較) は false = 数値として読む。
+        /// </param>
+        internal static string? LiteralFor(KintoneColumnDefinition column, object value, bool exactNumberText = false)
         {
             switch (column.Kind)
             {
                 case KintoneColumnKind.Number:
                     if (value is string text)
-                        return decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) ? NumberText(number) : null;
+                    {
+                        if (!decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)) return null;
+                        return exactNumberText && NumberText(number) != text ? null : NumberText(number);
+                    }
                     if (value is bool b) return b ? "1" : "0";
                     if (value is sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal) return NumberText(ToDecimal(value));
                     return null;
@@ -1368,7 +1375,8 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                             TermOperator.Greater => ">",
                             _ => ">=",
                         };
-                        return $"{name} {op} {literal}";
+                        //空の行では真にならない (SQL の大小の比較)
+                        return canBeEmpty ? $"({name} {op} {literal} and {RenderEmpty(column, false)})" : $"{name} {op} {literal}";
                     }
             }
         }

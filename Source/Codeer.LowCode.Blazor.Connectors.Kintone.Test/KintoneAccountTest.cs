@@ -134,6 +134,36 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
             Assert.That(result.Message, Does.Not.Contain("other.example.net"));
         }
 
+        [TestCase("""{"login":"fake-pass-123"}""")]
+        [TestCase("""{"apps":"fake-pass-123"}""")]
+        [TestCase("""["fake-pass-123"]""")]
+        public async Task 応答がappsの配列を持たないJSONなら2xxでもFailed(string body)
+        {
+            _fake.Override(_ => true, _ => FakeKintone.Status(HttpStatusCode.OK, body));
+            var result = await _connection.VerifyAccountAsync(LoginName, Password);
+            Assert.That(result.Status, Is.EqualTo(KintoneAccountStatus.Failed));
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.LoginName, Is.Empty);
+            Assert.That(result.Message, Is.Not.Empty.And.Not.Contain(Password));
+            Assert.That(_fake.Requests, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public async Task 応答がHTMLなら2xxでもFailed()
+        {
+            //途中の機器のログイン画面など
+            _fake.Override(_ => true, _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"<html><body>login {Password}</body></html>", Encoding.UTF8, "text/html"),
+            });
+            var result = await _connection.VerifyAccountAsync(LoginName, Password);
+            Assert.That(result.Status, Is.EqualTo(KintoneAccountStatus.Failed));
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.LoginName, Is.Empty);
+            Assert.That(result.Message, Is.Not.Empty.And.Not.Contain(Password));
+            Assert.That(_fake.Requests, Has.Count.EqualTo(1));
+        }
+
         [Test]
         public void 結果の文字列にパスワードを入れない()
         {

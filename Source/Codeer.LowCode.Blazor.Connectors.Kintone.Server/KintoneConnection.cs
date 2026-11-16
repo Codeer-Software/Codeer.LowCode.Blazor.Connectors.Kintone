@@ -154,6 +154,10 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             try
             {
                 using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, Settings.ApiUrl + "/apps.json?limit=1"), true, account);
+                //2xx でも kintone の応答 (apps の配列) でなければ通さない (途中の機器のログイン画面などを成功にしない)
+                using var json = ParseJson(await response.Content.ReadAsStringAsync(), response.StatusCode);
+                if (json.RootElement.ValueKind != JsonValueKind.Object || !json.RootElement.TryGetProperty("apps", out var apps) || apps.ValueKind != JsonValueKind.Array)
+                    return KintoneAccountResult.Fail("Could not check the account with kintone: the response is not the list of apps.");
                 return KintoneAccountResult.Success(loginName);
             }
             catch (KintoneException e) when (e.StatusCode == HttpStatusCode.Unauthorized)

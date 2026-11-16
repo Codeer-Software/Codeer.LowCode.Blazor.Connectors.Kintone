@@ -187,7 +187,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                         foreach (var value in values)
                         {
                             //列の種類で書けない値 (数字の列に文字など) はその列のどの行とも一致しない
-                            var literal = KintoneQueryTranslator.LiteralFor(column, value);
+                            var literal = KintoneQueryTranslator.LiteralFor(column, value, true);
                             if (literal != null) literals.Add(new KeyLiteral(KintoneQueryTranslator.KeyText(value), literal));
                         }
                         return literals.Count == 0 ? new ConstNode(false) : new ValuesNode(column, literals);

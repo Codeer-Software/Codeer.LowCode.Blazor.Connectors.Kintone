@@ -116,11 +116,11 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         [TestCase("Name", "!=", "A", "(Name != \"A\" and Name != \"\")")]
         [TestCase("CreditLimit", "=", 100, "CreditLimit = 100")]
         [TestCase("CreditLimit", "<>", 100, "(CreditLimit != 100 and CreditLimit != \"\")")]
-        [TestCase("CreditLimit", "<", 100, "CreditLimit < 100")]
-        [TestCase("CreditLimit", "<=", 100, "CreditLimit <= 100")]
-        [TestCase("CreditLimit", ">", 100, "CreditLimit > 100")]
-        [TestCase("CreditLimit", ">=", 100, "CreditLimit >= 100")]
-        [TestCase("Total", ">", 1, "Total > 1")]
+        [TestCase("CreditLimit", "<", 100, "(CreditLimit < 100 and CreditLimit != \"\")")]
+        [TestCase("CreditLimit", "<=", 100, "(CreditLimit <= 100 and CreditLimit != \"\")")]
+        [TestCase("CreditLimit", ">", 100, "(CreditLimit > 100 and CreditLimit != \"\")")]
+        [TestCase("CreditLimit", ">=", 100, "(CreditLimit >= 100 and CreditLimit != \"\")")]
+        [TestCase("Total", ">", 1, "(Total > 1 and Total != \"\")")]
         [TestCase("$id", "=", 5, "$id = 5")]
         [TestCase("$id", "<>", 5, "$id != 5")]
         [TestCase("$id", ">", 5, "$id > 5")]
@@ -137,11 +137,11 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         [Test]
         public async Task 日付と時刻と日時の比較()
         {
-            Assert.That(await FilterAsync("StartDate", ">=", new DateOnly(2026, 4, 1)), Is.EqualTo("StartDate >= \"2026-04-01\""));
+            Assert.That(await FilterAsync("StartDate", ">=", new DateOnly(2026, 4, 1)), Is.EqualTo("(StartDate >= \"2026-04-01\" and StartDate != \"\")"));
             Assert.That(await FilterAsync("StartDate", "<>", new DateOnly(2026, 4, 1)), Is.EqualTo("(StartDate != \"2026-04-01\" and StartDate != \"\")"));
-            Assert.That(await FilterAsync("OpenTime", "<", new TimeOnly(9, 5, 30)), Is.EqualTo("OpenTime < \"09:05\""));
+            Assert.That(await FilterAsync("OpenTime", "<", new TimeOnly(9, 5, 30)), Is.EqualTo("(OpenTime < \"09:05\" and OpenTime != \"\")"));
             Assert.That(await FilterAsync("LastContact", "=", new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Unspecified)), Is.EqualTo("LastContact = \"2026-04-01T09:00:00Z\""));
-            Assert.That(await FilterAsync("LastContact", ">", new DateTimeOffset(2026, 4, 1, 9, 0, 0, TimeSpan.FromHours(9))), Is.EqualTo("LastContact > \"2026-04-01T00:00:00Z\""));
+            Assert.That(await FilterAsync("LastContact", ">", new DateTimeOffset(2026, 4, 1, 9, 0, 0, TimeSpan.FromHours(9))), Is.EqualTo("(LastContact > \"2026-04-01T00:00:00Z\" and LastContact != \"\")"));
             Assert.That(await FilterAsync("Created", "<", new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc)), Is.EqualTo("Created < \"2026-04-01T00:00:00Z\""));
         }
 
@@ -199,7 +199,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         public async Task notは比較の逆にして空の行を含めない()
         {
             Assert.That(await FilterAsync("""not ("Customer"."Name" = @p0)""", ("@p0", "A")), Is.EqualTo("(Name != \"A\" and Name != \"\")"));
-            Assert.That(await FilterAsync("""not ("Customer"."CreditLimit" > @p0)""", ("@p0", 5)), Is.EqualTo("CreditLimit <= 5"));
+            Assert.That(await FilterAsync("""not ("Customer"."CreditLimit" > @p0)""", ("@p0", 5)), Is.EqualTo("(CreditLimit <= 5 and CreditLimit != \"\")"));
             Assert.That(await FilterAsync("""not ("Customer"."Rank" = @p0)""", ("@p0", "A")), Is.EqualTo("Rank not in (\"A\", \"\")"));
             Assert.That(await FilterAsync("""not ("Customer"."Name" is null)"""), Is.EqualTo("Name != \"\""));
             Assert.That(await FilterAsync("""not (not ("Customer"."Name" = @p0))""", ("@p0", "A")), Is.EqualTo("Name = \"A\""));
@@ -209,7 +209,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         public async Task notはドモルガンで押し下げる()
         {
             Assert.That(await FilterAsync("""not ("Customer"."Name" = @p0 and "Customer"."CreditLimit" >= @p1)""", ("@p0", "A"), ("@p1", 5)),
-                Is.EqualTo("(Name != \"A\" and Name != \"\") or CreditLimit < 5"));
+                Is.EqualTo("(Name != \"A\" and Name != \"\") or (CreditLimit < 5 and CreditLimit != \"\")"));
             Assert.That(await FilterAsync("""not ("Customer"."Name" = @p0 or "Customer"."Note" is null)""", ("@p0", "A")),
                 Is.EqualTo("(Name != \"A\" and Name != \"\") and Note is not empty"));
         }
@@ -218,7 +218,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         public async Task andとorは括弧を付けて入れ子にする()
         {
             Assert.That(await FilterAsync("""("Customer"."Name" = @p0 or "Customer"."Name" = @p1) and "Customer"."CreditLimit" > @p2""", ("@p0", "A"), ("@p1", "B"), ("@p2", 1)),
-                Is.EqualTo("(Name = \"A\" or Name = \"B\") and CreditLimit > 1"));
+                Is.EqualTo("(Name = \"A\" or Name = \"B\") and (CreditLimit > 1 and CreditLimit != \"\")"));
         }
 
         // ---------------------------------------------------------------- null の値 (unknown)・定数
@@ -345,6 +345,18 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         [TestCase("", "\"\"")]
         public async Task 文字の値は引用符と逆斜線を前置する(string value, string literal)
             => Assert.That(await FilterAsync("Name", "=", value), Is.EqualTo("Name = " + literal));
+
+        [Test]
+        public void 文字で突き合わせる所は数値の書き方と同じ文字だけ数値の列に当てる()
+        {
+            var column = _definitions["Customer"].FindColumn("CreditLimit")!;
+            Assert.That(KintoneQueryTranslator.LiteralFor(column, "12", true), Is.EqualTo("12"));
+            Assert.That(KintoneQueryTranslator.LiteralFor(column, "012", true), Is.Null);
+            Assert.That(KintoneQueryTranslator.LiteralFor(column, "12.0", true), Is.Null);
+            Assert.That(KintoneQueryTranslator.LiteralFor(column, 12.0m, true), Is.EqualTo("12"));
+            //条件の値は数値として読む
+            Assert.That(KintoneQueryTranslator.LiteralFor(column, "012"), Is.EqualTo("12"));
+        }
 
         [Test]
         public async Task 数値の値は引用符を付けず末尾の0を落とす()

@@ -197,7 +197,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                 if (row == null || !row.TryGetValue(join.SourceColumn, out var value) || value == null) continue;
                 var key = KintoneQueryTranslator.KeyText(value);
                 if (!seen.Add(key)) continue;
-                var literal = KintoneQueryTranslator.LiteralFor(destination, value);
+                var literal = KintoneQueryTranslator.LiteralFor(destination, value, true);
                 if (literal != null) keys.Add(new KeyLiteral(key, literal));
             }
 
@@ -356,9 +356,24 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             var literal = KintoneQueryTranslator.LiteralFor(key, value);
             if (literal == null) return null;
             var filter = KintoneQueryTranslator.Render(new ValuesNode(key, new() { new KeyLiteral(KintoneQueryTranslator.KeyText(value), literal) }), true);
-            var page = await connection.ReadRecordsAsync(definition.Name, new[] { KintoneTableDefinition.IdColumn },
-                KintoneQueryTranslator.BuildQuery(filter, Array.Empty<string>(), 1, 0), false);
-            return page.Records.Count == 0 ? null : GetRecordId(definition.Name, page.Records[0]);
+            //キーの列も読み、1 件だけで値がキーと同じときだけ使う (kintone の一致が思ったより広くても、別のレコードを書かない・消さない)
+            var page = await connection.ReadRecordsAsync(definition.Name, new[] { KintoneTableDefinition.IdColumn, key.Name },
+                KintoneQueryTranslator.BuildQuery(filter, Array.Empty<string>(), 2, 0), false);
+            if (page.Records.Count != 1) return null;
+            var record = page.Records[0];
+            if (!record.TryGetProperty(key.Name, out var field) || field.ValueKind != JsonValueKind.Object || !field.TryGetProperty("value", out var found)) return null;
+            //クエリに書いた値と同じ書き方で比べる。読めない値のレコードは対象にしない
+            object? foundValue;
+            try
+            {
+                foundValue = KintoneValueConverter.FromRecordValue(definition.Name, key, found);
+            }
+            catch (KintoneException)
+            {
+                return null;
+            }
+            if (foundValue == null || KintoneQueryTranslator.LiteralFor(key, foundValue) != literal) return null;
+            return GetRecordId(definition.Name, record);
         }
 
         /// <summary>

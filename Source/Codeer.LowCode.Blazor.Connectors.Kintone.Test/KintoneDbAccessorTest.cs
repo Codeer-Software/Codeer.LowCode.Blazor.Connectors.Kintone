@@ -66,7 +66,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
             //ページは 0 始まり。3 ページ目 = offset 4 (偽物は条件で絞らないので、5 件目と 6 件目が返る)
             var result = await _h.IO.GetListAsync(condition, 2);
 
-            const string filter = "Name like \"ab%c\" and IsActive = 0 and CreditLimit >= 10 and StartDate < \"2026-01-02\"";
+            const string filter = "Name like \"ab%c\" and IsActive = 0 and (CreditLimit >= 10 and CreditLimit != \"\") and (StartDate < \"2026-01-02\" and StartDate != \"\")";
             var reads = _h.Fake.ReadRequests;
             Assert.That(reads.Select(e => e.App), Is.EqualTo(new long?[] { TestMetadata.CustomerApp, TestMetadata.CustomerApp, TestMetadata.RegionApp }));
 
@@ -206,16 +206,16 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
 
             Assert.That(await FilterOf(Value("Name.Value", MatchComparison.Equal, "A")), Is.EqualTo("Name = \"A\""));
             Assert.That(await FilterOf(Value("Name.Value", MatchComparison.NotEqual, "A")), Is.EqualTo("(Name != \"A\" and Name != \"\")"));
-            Assert.That(await FilterOf(Value("CreditLimit.Value", MatchComparison.LessThan, 1m)), Is.EqualTo("CreditLimit < 1"));
-            Assert.That(await FilterOf(Value("CreditLimit.Value", MatchComparison.LessThanOrEqual, 1.50m)), Is.EqualTo("CreditLimit <= 1.5"));
-            Assert.That(await FilterOf(Value("CreditLimit.Value", MatchComparison.GreaterThan, 1m)), Is.EqualTo("CreditLimit > 1"));
+            Assert.That(await FilterOf(Value("CreditLimit.Value", MatchComparison.LessThan, 1m)), Is.EqualTo("(CreditLimit < 1 and CreditLimit != \"\")"));
+            Assert.That(await FilterOf(Value("CreditLimit.Value", MatchComparison.LessThanOrEqual, 1.50m)), Is.EqualTo("(CreditLimit <= 1.5 and CreditLimit != \"\")"));
+            Assert.That(await FilterOf(Value("CreditLimit.Value", MatchComparison.GreaterThan, 1m)), Is.EqualTo("(CreditLimit > 1 and CreditLimit != \"\")"));
             Assert.That(await FilterOf(Value("Name.Value", MatchComparison.Equal, null)), Is.EqualTo("Name = \"\""));
             Assert.That(await FilterOf(Value("Name.Value", MatchComparison.NotEqual, null)), Is.EqualTo("Name != \"\""));
             Assert.That(await FilterOf(Value("Note.Value", MatchComparison.Equal, null)), Is.EqualTo("Note is empty"));
             Assert.That(await FilterOf(Value("Rank.Value", MatchComparison.Equal, "A")), Is.EqualTo("Rank in (\"A\")"));
             Assert.That(await FilterOf(Value("Rank.Value", MatchComparison.Equal, null)), Is.EqualTo("Rank in (\"\")"));
             Assert.That(await FilterOf(Value("LastContact.Value", MatchComparison.GreaterThanOrEqual, new DateTime(2026, 3, 4, 5, 6, 7))),
-                Is.EqualTo("LastContact >= \"2026-03-04T05:06:07Z\""));
+                Is.EqualTo("(LastContact >= \"2026-03-04T05:06:07Z\" and LastContact != \"\")"));
             Assert.That(await FilterOf(Value("OpenTime.Value", MatchComparison.Equal, new TimeOnly(9, 30))), Is.EqualTo("OpenTime = \"09:30\""));
             Assert.That(await FilterOf(Value("Region.Value", MatchComparison.In, new List<string> { "R1", "R2" })),
                 Is.EqualTo("RegionCode = \"R1\" or RegionCode = \"R2\""));
@@ -485,9 +485,33 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
 
             Assert.That(count, Is.EqualTo(1));
             var requests = _h.Fake.DataRequests;
-            Assert.That(requests[0].Query, Is.EqualTo("Code in (\"C-1\") limit 1"));
-            Assert.That(requests[0].Fields, Is.EqualTo(new[] { "$id" }));
+            Assert.That(requests[0].Query, Is.EqualTo("Code in (\"C-1\") limit 2"));
+            Assert.That(requests[0].Fields, Is.EqualTo(new[] { "$id", "Code" }));
             Assert.That(requests[1].Body, Is.EqualTo("""{"app":11,"id":"7","record":{"Code":{"value":"C-2"},"Name":{"value":"B"}}}"""));
+        }
+
+        //Id の値で $id を引いたときの応答 (偽物は条件で絞らないので、置いたレコードがそのまま返る)
+        static List<JsonObject> FoundByKey(string found) => found switch
+        {
+            "2件" => new() { KintoneHarness.CustomerRecord(7, "A", code: "C-1"), KintoneHarness.CustomerRecord(8, "B", code: "C-1") },
+            "値違い" => new() { KintoneHarness.CustomerRecord(7, "A", code: "C-10") },
+            "キーの列なし" => new() { FakeKintone.Record(7, 1, ("Name", "SINGLE_LINE_TEXT", "A")) },
+            _ => throw new ArgumentException(found),
+        };
+
+        [TestCase("2件")]
+        [TestCase("値違い")]
+        [TestCase("キーの列なし")]
+        public async Task Idの値を変える更新は引いたレコードが1件でキーの値が同じでなければ送らない(string found)
+        {
+            _h.Fake.Records[TestMetadata.CustomerApp] = FoundByKey(found);
+
+            var count = await _h.Accessor.ExecuteAsync(TestConnections.DataSourceName, """update "Customer" set "Code"=@p0,"Name"=@p1 where "Code"=@pid0""",
+                new() { ["@p0"] = "C-2", ["@p1"] = "B", ["@pid0"] = "C-1" });
+
+            Assert.That(count, Is.EqualTo(0));
+            Assert.That(_h.Fake.ReadRequests.Single().Query, Is.EqualTo("Code in (\"C-1\") limit 2"));
+            Assert.That(_h.Fake.WriteRequests, Is.Empty);
         }
 
         [Test]
@@ -616,8 +640,27 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
 
             Assert.That(results.Single().ExceptionMessage, Is.Empty);
             var requests = _h.Fake.DataRequests;
-            Assert.That(requests[0].Query, Is.EqualTo("Code in (\"C-1\") limit 1"));
+            Assert.That(requests[0].Query, Is.EqualTo("Code in (\"C-1\") limit 2"));
             Assert.That(requests[1].Url, Is.EqualTo(FakeKintone.ApiUrl + "/records.json?app=11&ids%5B0%5D=7"));
+        }
+
+        [TestCase("2件")]
+        [TestCase("値違い")]
+        [TestCase("キーの列なし")]
+        public async Task 重複禁止のフィールドがIdの削除は引いたレコードが1件でキーの値が同じでなければ送らない(string found)
+        {
+            _h.Fake.Records[TestMetadata.CustomerApp] = FoundByKey(found);
+
+            var results = await SubmitAsync(new ModuleSubmitData { ModuleName = "CustomerByCode", Delete = new() { new ModuleDeleteInfo { ModuleName = "CustomerByCode", Id = "C-1" } } });
+
+            //本体の物理削除は 0 行でもエラーにしない
+            Assert.That(results.Single().ExceptionMessage, Is.Empty);
+            Assert.That(_h.Fake.ReadRequests.Single().Query, Is.EqualTo("Code in (\"C-1\") limit 2"));
+            Assert.That(_h.Fake.WriteRequests, Is.Empty);
+            //削除の SQL の行数も 0 (0 行として返す)
+            var count = await _h.Accessor.ExecuteAsync(TestConnections.DataSourceName, _h.Sql.Sqls.Single(e => e.StartsWith("delete", StringComparison.Ordinal)), new() { ["@pid0"] = "C-1" });
+            Assert.That(count, Is.EqualTo(0));
+            Assert.That(_h.Fake.WriteRequests, Is.Empty);
         }
 
         [Test]
