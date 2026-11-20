@@ -59,6 +59,9 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
 
         public bool IsSubtable => FieldType == KintoneTableDefinition.SubtableType;
 
+        /// <summary>添付ファイルのフィールド (FILE)。表の列 (テーブルの外) なら添付のフィールドで読み書きする (<see cref="KintoneAttachments"/>)。</summary>
+        public bool IsAttachments => FieldType == KintoneTableDefinition.FileType;
+
         public KintoneColumnDefinition? FindSubField(string code) => SubFields?.FirstOrDefault(e => e.Name == code);
 
         /// <summary>値が空になりえない列 (空かどうかの条件を書かない・書けない)。</summary>
@@ -92,6 +95,9 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         internal const string IdType = "__ID__";
         internal const string RevisionType = "__REVISION__";
         internal const string SubtableType = "SUBTABLE";
+        internal const string FileType = "FILE";
+        /// <summary>添付ファイルの列の列型の名前 (本体へは文字の列。デザイナ・AI が添付の列を見分ける)。</summary>
+        internal const string AttachmentsRawTypeName = "kintone_file";
 
         public string Name { get; init; } = string.Empty;
         public List<KintoneColumnDefinition> Columns { get; } = new();
@@ -113,6 +119,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                     KintoneColumnKind.Time => (typeof(TimeOnly), "time"),
                     //UTC の瞬間を持つ列型の名前にしておく (デザイナが DateTimeField の SaveAsUtc を既定でオンにする)
                     KintoneColumnKind.DateTime => (typeof(DateTime), "timestamp with time zone"),
+                    KintoneColumnKind.Json when column.IsAttachments => (typeof(string), AttachmentsRawTypeName),
                     KintoneColumnKind.Json => (typeof(string), "text"),
                     _ => (typeof(string), "varchar"),
                 };
@@ -188,7 +195,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
 
         //kintone が値を決める種類 (書き込めない)
         static bool IsSystemValue(string fieldType)
-            => fieldType is "CALC" or "RECORD_NUMBER" or "CREATOR" or "MODIFIER" or "CREATED_TIME" or "UPDATED_TIME" or "STATUS" or "STATUS_ASSIGNEE" or "CATEGORY" or "FILE";
+            => fieldType is "CALC" or "RECORD_NUMBER" or "CREATOR" or "MODIFIER" or "CREATED_TIME" or "UPDATED_TIME" or "STATUS" or "STATUS_ASSIGNEE" or "CATEGORY";
 
         /// <summary>
         /// フォームの設定 (app/form/fields.json の応答) を定義にする。先頭に $id と $revision を足す。
@@ -265,7 +272,8 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                 Kind = kind.Value,
                 FieldType = type,
                 Label = GetText(field, "label") ?? string.Empty,
-                IsReadOnly = IsSystemValue(type) || isAutoCalculated || copied.Contains(code),
+                //添付ファイルは表の列なら添付のフィールドで書ける。テーブルの中の添付ファイルは書かない (行の中のファイルの転送は未対応)
+                IsReadOnly = IsSystemValue(type) || (type == FileType && !allowSubtable) || isAutoCalculated || copied.Contains(code),
                 IsRequired = GetBool(field, "required"),
                 IsUnique = GetBool(field, "unique"),
                 IsLookup = isLookup,

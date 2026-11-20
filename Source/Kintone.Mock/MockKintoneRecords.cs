@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -885,17 +886,19 @@ namespace Kintone.Mock
                             if (item is not JsonObject o) return Fail("不正な値です。");
                             var fileKey = o["fileKey"]?.GetValue<string>();
                             if (fileKey != null && files.TryGetValue(fileKey, out var file)) result.Add(file.DeepClone());
+                            else if (fileKey != null && TakeUpload(fileKey) is { } upload)
+                            {
+                                //アップロードした fileKey (一時保管領域) は 1 回だけ使える。添付したファイルにはレコードの値で返す別の fileKey を振る
+                                result.Add(StoreFile(upload.Name, upload.ContentType, upload.Content));
+                            }
                             else if (lenient && fileKey == null && o["name"]?.GetValue<string>() is { } name)
                             {
-                                result.Add(new JsonObject
-                                {
-                                    ["contentType"] = o["contentType"]?.GetValue<string>() ?? "application/octet-stream",
-                                    ["fileKey"] = $"mock-file-{_nextFileId++.ToString(CultureInfo.InvariantCulture)}",
-                                    ["name"] = name,
-                                    ["size"] = o["size"] is JsonValue size ? ScalarText(size) : "0",
-                                });
+                                //データのファイルの添付は中身を持たないので、名前から決まる文字を中身にする
+                                var stored = StoreFile(name, o["contentType"]?.GetValue<string>() ?? "application/octet-stream", Encoding.UTF8.GetBytes($"mock content of {name}"));
+                                if (o["size"] is JsonValue size) stored["size"] = ScalarText(size);
+                                result.Add(stored);
                             }
-                            else return Fail($"ファイル（fileKey: {fileKey}）が見つかりません。モックはファイルのアップロードに応えないので、今ある添付の fileKey だけを指定できます。");
+                            else return Fail($"ファイル（fileKey: {fileKey}）が見つかりません。");
                         }
                         return result;
                     }

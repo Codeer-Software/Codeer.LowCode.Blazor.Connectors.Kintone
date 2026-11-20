@@ -1,6 +1,11 @@
+using Codeer.LowCode.Blazor.DataIO;
 using Codeer.LowCode.Blazor.DataIO.Db;
 using Codeer.LowCode.Blazor.DataIO.Db.Definition;
+using Codeer.LowCode.Blazor.DesignLogic;
+using Codeer.LowCode.Blazor.Repository;
+using Codeer.LowCode.Blazor.Repository.Data;
 using Codeer.LowCode.Blazor.Repository.Design;
+using Codeer.LowCode.Blazor.Repository.Match;
 using Codeer.LowCode.Blazor.SystemSettings;
 using System.Data;
 using System.Data.Common;
@@ -19,26 +24,36 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
     {
         readonly IDbAccessor _inner;
         readonly Dictionary<string, KintoneConnection> _connections;
-        readonly string? _metadataDirectory;
+        readonly KintoneMetadataFile? _metadataFile;
 
         /// <param name="inner">kintone 以外のデータソースを受け持つ IDbAccessor。</param>
         /// <param name="connections">kintone への接続 (<see cref="KintoneConnection.FromDataSources"/>)。</param>
-        /// <param name="metadataDirectory">
-        /// 指定すると、表の定義をこのフォルダに保存したファイル (<see cref="KintoneMetadataFile"/>) から答える (kintone に取りに行かない)。デザイナ用。
+        /// <param name="metadataFile">
+        /// アプリの定義の出所。指定するとアプリの定義をこのファイルから読み、kintone に取りに行かない (ファイルに無いアプリ (表) は無い)。
+        /// デザイナは <see cref="KintoneMetadataFile.FromProject"/>、Web アプリは <see cref="KintoneMetadataFile.FromDeployedDesign"/>。
+        /// null ならアプリごとに最初の 1 回 kintone のフォームの設定 (app/form/fields.json) を読む。
         /// </param>
-        public KintoneDbAccessor(IDbAccessor inner, IEnumerable<KintoneConnection> connections, string? metadataDirectory = null)
+        public KintoneDbAccessor(IDbAccessor inner, IEnumerable<KintoneConnection> connections, KintoneMetadataFile? metadataFile = null)
         {
             _inner = inner;
             _connections = connections.ToDictionary(e => e.Settings.Name);
-            _metadataDirectory = metadataDirectory;
+            _metadataFile = metadataFile;
         }
 
         KintoneConnection? Find(string dataSourceName)
             => _connections.TryGetValue(dataSourceName, out var connection) ? connection : null;
 
-        //保存してある定義。ファイルから答えない設定なら null
-        List<KintoneTableDefinition>? LoadSavedDefinitions(KintoneConnection connection)
-            => string.IsNullOrEmpty(_metadataDirectory) ? null : KintoneMetadataFile.Load(_metadataDirectory, connection.Settings.Name) ?? new();
+        //アプリの定義。ファイルから読むときは、接続文字列の Apps にあるアプリだけ (アプリ ID は Apps のものを使う。ファイルにアプリ ID は無い)
+        Task<KintoneTableDefinition> GetDefinitionAsync(KintoneConnection connection, string table)
+        {
+            if (_metadataFile == null) return connection.GetTableDefinitionAsync(table);
+            if (!connection.Settings.Apps.Any(e => e.Name == table))
+                throw new KintoneException($"kintone data source '{connection.Settings.Name}': table '{table}' is not in Apps of the connection string.", KintoneErrorKind.NotFound);
+            var definition = _metadataFile.Load(connection.Settings.Name).FirstOrDefault(e => e.Name == table) ?? throw _metadataFile.TableNotFound(connection.Settings.Name, table);
+            return Task.FromResult(definition);
+        }
+
+        Func<string, Task<KintoneTableDefinition>> DefinitionResolver(KintoneConnection connection) => table => GetDefinitionAsync(connection, table);
 
         public DataSource? GetDataSource(string dataSource)
         {
@@ -87,7 +102,9 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         {
             var connection = Find(dataSourceName);
             if (connection == null) return await _inner.GetCustomTableDefinitionsAsync(dataSourceName);
-            if (LoadSavedDefinitions(connection) is { } saved) return saved.Select(e => e.ToTableDefinition()).ToList();
+            //ファイルから読むときは「ファイルにあって Apps にもあるアプリ」
+            if (_metadataFile != null)
+                return _metadataFile.Load(connection.Settings.Name).Where(e => connection.Settings.Apps.Any(a => a.Name == e.Name)).Select(e => e.ToTableDefinition()).ToList();
             return (await connection.GetTableDefinitionsAsync()).Select(e => e.ToTableDefinition()).ToList();
         }
 
@@ -95,14 +112,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         {
             var connection = Find(dataSourceName);
             if (connection == null) return await _inner.GetCustomTableDefinitionsAsync(dataSourceName, tableNames);
-            if (LoadSavedDefinitions(connection) is { } saved)
-            {
-                var definition = saved.FirstOrDefault(e => e.Name == tableNames);
-                if (definition == null)
-                    throw new KintoneException($"Table '{tableNames}' is not in the saved kintone metadata of data source '{dataSourceName}'. Update the kintone metadata.");
-                return definition.ToTableDefinition();
-            }
-            return (await connection.GetTableDefinitionAsync(tableNames)).ToTableDefinition();
+            return (await GetDefinitionAsync(connection, tableNames)).ToTableDefinition();
         }
 
         // ---------------------------------------------------------------- 読み出し
@@ -114,11 +124,11 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             return await QueryCoreAsync(connection, query, args.ToDictionary(e => e.Key, e => e.Value.Value));
         }
 
-        static async Task<List<IDictionary<string, object>>> QueryCoreAsync(KintoneConnection connection, string query, Dictionary<string, object?> args)
+        async Task<List<IDictionary<string, object>>> QueryCoreAsync(KintoneConnection connection, string query, Dictionary<string, object?> args)
         {
             if (KintoneQueryTranslator.IsAggregate(query))
-                return await KintoneQueryExecutor.AggregateAsync(connection, await KintoneQueryTranslator.TranslateAggregateAsync(query, args, connection.GetTableDefinitionAsync));
-            return await KintoneQueryExecutor.ReadAsync(connection, await KintoneQueryTranslator.TranslateSelectAsync(query, args, connection.GetTableDefinitionAsync));
+                return await KintoneQueryExecutor.AggregateAsync(connection, await KintoneQueryTranslator.TranslateAggregateAsync(query, args, DefinitionResolver(connection)));
+            return await KintoneQueryExecutor.ReadAsync(connection, await KintoneQueryTranslator.TranslateSelectAsync(query, args, DefinitionResolver(connection)));
         }
 
         static KintoneException TooManyRows(int maxRows)
@@ -195,7 +205,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             foreach (var row in sourceRows)
             {
                 if (row == null || !row.TryGetValue(join.SourceColumn, out var value) || value == null) continue;
-                var key = KintoneQueryTranslator.KeyText(value);
+                var key = JoinKey(value);
                 if (!seen.Add(key)) continue;
                 var literal = KintoneQueryTranslator.LiteralFor(destination, value, true);
                 if (literal != null) keys.Add(new KeyLiteral(key, literal));
@@ -220,8 +230,12 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             return sourceRows.Select(row =>
             {
                 if (row == null || !row.TryGetValue(join.SourceColumn, out var value) || value == null) return null;
-                return found.TryGetValue(KintoneQueryTranslator.KeyText(value), out var joined) ? joined : null;
+                return found.TryGetValue(JoinKey(value), out var joined) ? joined : null;
             }).ToList();
+
+            //突き合わせの文字は結合先の列の値と同じ書き方にする (日付の列に当てる 0:00 の日時は日付。時刻の入った日時はどの日付とも一致しないので日時のまま)
+            string JoinKey(object value)
+                => KintoneQueryTranslator.KeyText(destination.Kind == KintoneColumnKind.Date && value is DateTime { TimeOfDay.Ticks: 0 } dateTime ? DateOnly.FromDateTime(dateTime) : value);
         }
 
         //レコード → 列名と .NET の値 (定義にある列だけ)
@@ -288,19 +302,25 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         /// 読み取り専用の列 (計算・ルックアップのコピー先・レコード ID など) は値があればエラー。版 ($revision) は kintone が付けるので送らない。
         /// 戻り値は Id の列の値: レコード ID ($id) なら作成されたレコードの ID、それ以外 (重複禁止のフィールド) なら送った値。
         /// </summary>
-        static async Task<string> InsertRowAsync(KintoneConnection connection, KintoneInsert insert, List<string> parameters, Dictionary<string, object?> args)
+        async Task<string> InsertRowAsync(KintoneConnection connection, KintoneInsert insert, List<string> parameters, Dictionary<string, object?> args)
         {
-            var definition = await connection.GetTableDefinitionAsync(insert.Table);
+            var definition = await GetDefinitionAsync(connection, insert.Table);
             var returning = string.IsNullOrEmpty(insert.ReturningColumn) ? KintoneTableDefinition.IdColumn : insert.ReturningColumn;
             if (returning != KintoneTableDefinition.IdColumn && !GetColumn(definition, returning).CanBeRecordKey) throw NotRecordKey(definition, returning);
 
             var record = new JsonObject();
+            var attachments = new Dictionary<string, KintoneAttachments.Change>(StringComparer.Ordinal);
             object? returningValue = null;
             foreach (var (name, parameter) in insert.Columns.Zip(parameters))
             {
                 var column = GetColumn(definition, name);
                 var value = GetArgument(args, parameter);
                 if (name == KintoneTableDefinition.RevisionColumn) continue;
+                if (column.IsAttachments)
+                {
+                    attachments[name] = KintoneAttachments.ParseChange(definition.Name, name, value);
+                    continue;
+                }
                 if (value == null) continue;
                 if (column.IsReadOnly)
                     throw new KintoneException($"Field '{name}' of kintone app '{definition.Name}' is read-only and cannot be written.");
@@ -309,6 +329,13 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             }
             if (returning != KintoneTableDefinition.IdColumn && IsEmpty(returningValue))
                 throw new KintoneException($"The value of field '{returning}' (the Id of the record) is required to create a record of kintone app '{definition.Name}'.");
+
+            //添付: 作成では足すファイルだけ (消す指定は見ない)。アップロードして得た fileKey を並べる
+            foreach (var (name, change) in attachments)
+            {
+                if (change.Additions.Count == 0) continue;
+                record[name] = new JsonObject { ["value"] = KintoneAttachments.ToValue(await UploadAsync(connection, change)) };
+            }
 
             var created = await connection.CreateAsync(insert.Table, record);
             return returning == KintoneTableDefinition.IdColumn ? created.Id : KintoneQueryTranslator.KeyText(returningValue!);
@@ -337,12 +364,33 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
 
         //キーと版の一致のほかに条件 (論理削除など) が付いた書き込みは、条件に合う行があるかを先に数えて確かめてから、キー指定で書く。
         //確かめてから書くまでの間に別の更新が入ることは防げない (版の条件があれば kintone が版で弾く)
-        static async Task<bool> ExistsAsync(KintoneConnection connection, KintoneWrite write, Dictionary<string, object?> args)
+        async Task<bool> ExistsAsync(KintoneConnection connection, KintoneWrite write, Dictionary<string, object?> args)
         {
             if (!write.HasOtherConditions) return true;
             var rows = await QueryCoreAsync(connection, $"select count(*) from \"{write.Table}\" where {write.WhereSql}", args);
             var count = rows.FirstOrDefault()?.Values.FirstOrDefault();
             return count != null && 0 < Convert.ToDecimal(count, CultureInfo.InvariantCulture);
+        }
+
+        //ExistsAsync と同じ条件 (キー・論理削除など。版は除く) でレコードを読み、添付の列に今ある fileKey と版を返す。1 件でなければ null
+        async Task<(string Revision, Dictionary<string, List<string>> FileKeys)?> ReadStoredAttachmentsAsync(KintoneConnection connection, KintoneWrite write,
+            Dictionary<string, object?> args, List<string> columns)
+        {
+            var select = string.Join(", ", new[] { KintoneTableDefinition.RevisionColumn }.Concat(columns).Select(e => $"\"{e}\""));
+            var rows = await QueryCoreAsync(connection, $"select {select} from \"{write.Table}\" where {write.WhereSql}", args);
+            if (rows.Count != 1) return null;
+            var row = rows[0];
+            var revision = row.TryGetValue(KintoneTableDefinition.RevisionColumn, out var r) && r != null ? KintoneQueryTranslator.KeyText(r) : string.Empty;
+            if (!IsRecordId(revision)) return null;
+            return (revision, columns.ToDictionary(e => e, e => KintoneAttachments.ReadFileKeys(row.TryGetValue(e, out var value) ? value as string : null)));
+        }
+
+        //足すファイルを 1 つずつアップロードして fileKey を並べる。アップロードの後で更新が失敗しても、添付されなかったファイルは kintone が 3 日で消す
+        static async Task<List<string>> UploadAsync(KintoneConnection connection, KintoneAttachments.Change change)
+        {
+            var keys = new List<string>();
+            foreach (var addition in change.Additions) keys.Add(await connection.UploadFileAsync(addition.Name, addition.ContentType, addition.Content));
+            return keys;
         }
 
         //キーの値からレコード ID を引く。無ければ null
@@ -380,17 +428,23 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         /// 更新。対象は、Id の列がレコード ID ($id) ならその ID、重複禁止のフィールドならその値 (updateKey)。
         /// 版の条件 (楽観ロック) は kintone の revision に渡す (版が違えば 0 行)。SET の版 ($revision) は送らない (kintone が 1 つ進める)。
         /// </summary>
-        static async Task<int> UpdateAsync(KintoneConnection connection, KintoneWrite update, Dictionary<string, object?> args)
+        async Task<int> UpdateAsync(KintoneConnection connection, KintoneWrite update, Dictionary<string, object?> args)
         {
-            var (definition, key, keyValue) = GetTarget(await connection.GetTableDefinitionAsync(update.Table), update, args);
+            var (definition, key, keyValue) = GetTarget(await GetDefinitionAsync(connection, update.Table), update, args);
 
             var record = new JsonObject();
+            var attachments = new Dictionary<string, KintoneAttachments.Change>(StringComparer.Ordinal);
             var changesKey = false;
             foreach (var (name, parameter) in update.Values)
             {
                 var column = GetColumn(definition, name);
                 var value = GetArgument(args, parameter);
                 if (name == KintoneTableDefinition.RevisionColumn) continue;
+                if (column.IsAttachments)
+                {
+                    attachments[name] = KintoneAttachments.ParseChange(definition.Name, name, value);
+                    continue;
+                }
                 if (name == key.Name)
                 {
                     //Id の列を同じ値で書くのは何もしない。別の値に変えるときは、レコード ID で対象を決めて書く
@@ -404,7 +458,32 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
 
             var (canMatch, revision) = GetRevision(update, args);
             if (!canMatch) return 0;
-            if (!await ExistsAsync(connection, update, args)) return 0;
+            if (attachments.Count == 0)
+            {
+                if (!await ExistsAsync(connection, update, args)) return 0;
+            }
+            else
+            {
+                //添付: 存在の確認と同じ条件でレコードの今の fileKey を読み、「今あるもの - 消す指定 (今あるものと一致したものだけ) + 新しいもの」を送る
+                var stored = await ReadStoredAttachmentsAsync(connection, update, args, attachments.Keys.ToList());
+                if (stored == null) return 0;
+                var wrote = false;
+                foreach (var (name, change) in attachments)
+                {
+                    var keys = stored.Value.FileKeys[name];
+                    var deletions = change.Deletions.Where(e => keys.Contains(e, StringComparer.Ordinal)).ToList();
+                    if (change.Additions.Count == 0 && deletions.Count == 0) continue;
+                    var uploaded = change.Additions.Count == 0 ? new List<string>() : await UploadAsync(connection, change);
+                    var value = KintoneAttachments.ToUpdateValue(keys, deletions, uploaded);
+                    if (value == null) continue;
+                    record[name] = new JsonObject { ["value"] = value };
+                    wrote = true;
+                }
+                //書くものが無ければ送らない (読んだ値をそのまま書いた・消す指定がどれもこのレコードのものでない)
+                if (record.Count == 0) return 1;
+                //読んだ版で書く (読んでから書くまでに別の更新が入ったら kintone が弾く = 間に足された添付を消さない)
+                if (wrote && revision == null) revision = stored.Value.Revision;
+            }
 
             if (key.Name == KintoneTableDefinition.IdColumn || changesKey)
             {
@@ -417,15 +496,79 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         }
 
         /// <summary>削除。Id の列がレコード ID でなければ、先にレコード ID を引く。版の条件は kintone の revision に渡す。</summary>
-        static async Task<int> DeleteAsync(KintoneConnection connection, KintoneWrite delete, Dictionary<string, object?> args)
+        async Task<int> DeleteAsync(KintoneConnection connection, KintoneWrite delete, Dictionary<string, object?> args)
         {
-            var (definition, key, keyValue) = GetTarget(await connection.GetTableDefinitionAsync(delete.Table), delete, args);
+            var (definition, key, keyValue) = GetTarget(await GetDefinitionAsync(connection, delete.Table), delete, args);
             var (canMatch, revision) = GetRevision(delete, args);
             if (!canMatch) return 0;
             if (!await ExistsAsync(connection, delete, args)) return 0;
             var id = await FindRecordIdAsync(connection, definition, key, keyValue);
             if (id == null) return 0;
             return await connection.DeleteAsync(delete.Table, id, revision) ? 1 : 0;
+        }
+
+        // ---------------------------------------------------------------- 添付ファイルのダウンロード
+
+        /// <summary>添付のフィールド (クライアント用パッケージの KintoneAttachmentsFieldDesign) の型の名前。このパッケージはクライアント用パッケージを参照しないので名前で見る。</summary>
+        internal const string AttachmentsFieldDesignTypeFullName = "Codeer.LowCode.Blazor.Connectors.Kintone.KintoneAttachmentsFieldDesign";
+
+        /// <summary>
+        /// 添付のフィールドのファイル 1 つの中身を、現在の利用者の権限で読む (ホストのダウンロードの Controller から呼ぶ)。
+        /// 手順: モジュールがこのアクセサの kintone のデータソースで、フィールドが添付のフィールド (表の添付ファイルの列) で、Id がレコードを決められる列であることを確かめる →
+        /// io の通常の読み出し (モジュール・行・フィールドの権限・論理削除が効く) で Id が一致するレコードのそのフィールドだけを読む →
+        /// その値に key の fileKey があることを確かめる → レコードの値にあった fileKey で kintone から中身を読む。
+        /// どれかが満たせなければ null (理由は区別しない。失敗でも例外を投げない)。
+        /// 連携用の認証 (API トークン) はアプリのどの添付も読めるので、fileKey だけで中身を返す口をホストに作らない。
+        /// </summary>
+        /// <param name="io">現在の利用者の ModuleDataIO。</param>
+        /// <param name="designData">io と同じデザイン。</param>
+        /// <param name="moduleName">モジュール名。</param>
+        /// <param name="id">レコードの Id (モジュールの Id のフィールドの値)。</param>
+        /// <param name="fieldName">添付のフィールドの名前。</param>
+        /// <param name="key">ファイルの fileKey (レコードを読んだときの値)。</param>
+        public async Task<KintoneAttachmentFile?> GetAttachmentAsync(ModuleDataIO io, DesignData designData, string? moduleName, string? id, string? fieldName, string? key)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(moduleName) || string.IsNullOrEmpty(fieldName) || string.IsNullOrEmpty(id) || !KintoneAttachments.IsFileKey(key)) return null;
+
+                var module = designData.Modules.Find(moduleName);
+                if (module == null || string.IsNullOrEmpty(module.DataSourceName)) return null;
+                var connection = Find(module.DataSourceName);
+                if (connection == null) return null;
+                var field = module.Fields.FirstOrDefault(e => e.Name == fieldName);
+                if (field?.TypeFullName != AttachmentsFieldDesignTypeFullName) return null;
+                //型は名前で見たので、列の名前は公開のプロパティから読む
+                if (field.GetType().GetProperty("DbColumn")?.GetValue(field) is not string dbColumn) return null;
+                var definition = await GetDefinitionAsync(connection, module.DbTable);
+                if (definition.FindColumn(dbColumn) is not { IsAttachments: true }) return null;
+                var idField = module.Fields.OfType<IdFieldDesign>().FirstOrDefault();
+                if (idField == null || definition.FindColumn(idField.DbColumn) is not { } idColumn) return null;
+                if (idColumn.Name != KintoneTableDefinition.IdColumn && !idColumn.CanBeRecordKey) return null;
+
+                var condition = new SearchCondition(moduleName)
+                {
+                    Condition = MultiMatchCondition.And(new FieldValueMatchCondition
+                    {
+                        SearchTargetVariable = idField.Name + ".Value",
+                        Comparison = MatchComparison.Equal,
+                        Value = MultiTypeValue.Create(id),
+                    }),
+                };
+                condition.SelectFields.Add(fieldName);
+                var rows = (await io.GetListAsync(condition, 0)).Items;
+                if (rows.Count != 1 || !rows[0].Fields.TryGetValue(fieldName, out var data) || data is not ValueFieldDataBase<string> value) return null;
+                //クライアントの文字は突き合わせだけに使い、kintone へはレコードの値にあった fileKey を送る
+                var file = KintoneAttachments.ReadFiles(value.Value).FirstOrDefault(e => string.Equals(e.FileKey, key, StringComparison.Ordinal));
+                if (file.FileKey == null) return null;
+
+                var content = await connection.DownloadFileAsync(file.FileKey);
+                return new KintoneAttachmentFile(string.IsNullOrEmpty(file.Name) ? "download" : file.Name, content);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
     }
 }

@@ -145,6 +145,18 @@
     },
     {
       "Text": "",
+      "RelativeField": "Attachments",
+      "Name": "AttachmentsLabel",
+      "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.LabelFieldDesign"
+    },
+    {
+      "DbColumn": "Attachments",
+      "DisplayName": "添付ファイル",
+      "Name": "Attachments",
+      "TypeFullName": "Codeer.LowCode.Blazor.Connectors.Kintone.KintoneAttachmentsFieldDesign"
+    },
+    {
+      "Text": "",
       "RelativeField": "Lines",
       "Name": "LinesLabel",
       "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.LabelFieldDesign"
@@ -398,6 +410,31 @@
             "Columns": [
               {
                 "Layout": {
+                  "FieldName": "AttachmentsLabel",
+                  "Name": "",
+                  "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.FieldLayoutDesign"
+                }
+              }
+            ]
+          },
+          {
+            "Columns": [
+              {
+                "Layout": {
+                  "FieldName": "Attachments",
+                  "Name": "",
+                  "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.FieldLayoutDesign"
+                }
+              }
+            ]
+          },
+          {
+            "Margin": {
+              "Bottom": 0
+            },
+            "Columns": [
+              {
+                "Layout": {
                   "FieldName": "LinesLabel",
                   "Name": "",
                   "TypeFullName": "Codeer.LowCode.Blazor.Repository.Design.FieldLayoutDesign"
@@ -465,6 +502,10 @@
             "FieldName": "ProcessStatus",
             "Width": 100,
             "IsViewOnly": true
+          },
+          {
+            "FieldName": "Attachments",
+            "CanUserSort": false
           }
         ]
       ]

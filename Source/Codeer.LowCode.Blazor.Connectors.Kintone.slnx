@@ -5,6 +5,7 @@
     <Project Path="Example/LowCodeApp.Designer/LowCodeApp.Designer.csproj" />
     <Project Path="Example/LowCodeApp.Server/LowCodeApp.Server.csproj" />
   </Folder>
+  <Project Path="Codeer.LowCode.Blazor.Connectors.Kintone/Codeer.LowCode.Blazor.Connectors.Kintone.csproj" />
   <Project Path="Codeer.LowCode.Blazor.Connectors.Kintone.Designer/Codeer.LowCode.Blazor.Connectors.Kintone.Designer.csproj" />
   <Project Path="Codeer.LowCode.Blazor.Connectors.Kintone.Server/Codeer.LowCode.Blazor.Connectors.Kintone.Server.csproj" />
   <Project Path="Codeer.LowCode.Blazor.Connectors.Kintone.Test/Codeer.LowCode.Blazor.Connectors.Kintone.Test.csproj" />

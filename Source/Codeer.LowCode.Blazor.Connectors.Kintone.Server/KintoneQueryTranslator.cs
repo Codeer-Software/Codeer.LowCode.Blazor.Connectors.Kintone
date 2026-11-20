@@ -156,8 +156,13 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
 
     /// <summary>集計の SQL の式。</summary>
     abstract record AggregateExpression;
-    /// <summary>列 ("別名"."列")。</summary>
-    record AggregateColumn(string Alias, string Column) : AggregateExpression;
+    /// <summary>列 ("別名"."列")。Bucket があれば、日付・日時の列を期間の開始に丸めた値 (本体の日付の軸)。</summary>
+    record AggregateColumn(string Alias, string Column, DateBucketSpec? Bucket = null) : AggregateExpression;
+    /// <summary>
+    /// 日付の丸め (PostgreSQL の date_trunc)。Unit は hour / day / week / month / quarter / year。
+    /// ShiftMinutes は丸める前に足す分 (UTC 保存の日時をローカル時刻にする)。FiscalMonths は年度の開始月までのずれ (月。quarter / year だけ)。
+    /// </summary>
+    record DateBucketSpec(string Unit, int ShiftMinutes, int FiscalMonths);
     /// <summary>case when 列 is null then 1 else 0 end (空値を最後に並べる印)。</summary>
     record AggregateNullFlag(AggregateColumn Column) : AggregateExpression;
     /// <summary>case 列 when 'a' then 0 ... else n end (候補の順)。</summary>
@@ -377,13 +382,16 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
 
         /// <summary>
         /// 列の種類に合わせたクエリの値。数値の列に数値でない文字を当てるなど、合う行が無いと決まる値は null。
+        /// ユーザー・組織の列に kintone の関数の形の文字 (LOGINUSER() など) を当てた値も null (kintone に関数として読ませない。<see cref="IsQueryFunctionText"/>)。
         /// </summary>
         /// <param name="exactNumberText">
-        /// 値を文字で突き合わせる所 (結合・集めた値との一致) で true。数値の列に当てる文字は、数値の文字 (NumberText) と同じ書き方のものだけ通す
-        /// ("01" は 1 と一致しない)。条件の値 (比較) は false = 数値として読む。
+        /// 値をそのまま突き合わせる所 (結合・集めた値との一致) で true。数値の列に当てる文字は、数値の文字 (NumberText) と同じ書き方のものだけ通し
+        /// ("01" は 1 と一致しない)、日付・時刻の列に当てる値は、列が持てる細かさのもの (日付は 0:00 の日時・時刻は秒の無いもの) だけ通す。
+        /// 条件の値 (比較) は false = 数値として読む・日付と時刻は切り捨てる (細かい値の比較は <see cref="CreateTerm"/> が先に読み替える)。
         /// </param>
         internal static string? LiteralFor(KintoneColumnDefinition column, object value, bool exactNumberText = false)
         {
+            if (exactNumberText && Coarser(column, value) != null) return null;
             switch (column.Kind)
             {
                 case KintoneColumnKind.Number:
@@ -422,9 +430,39 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                         _ => null,
                     };
                 default:
-                    return StringLiteral(KeyText(value));
+                    {
+                        var keyText = KeyText(value);
+                        return IsQueryFunctionText(column, keyText) ? null : StringLiteral(keyText);
+                    }
             }
         }
+
+        static readonly System.Text.RegularExpressions.Regex QueryFunctionText = new(@"^\s*(LOGINUSER|PRIMARY_ORGANIZATION)\s*\(\s*\)\s*$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// ユーザー・組織の列 (作成者・更新者・ユーザー選択・組織選択・作業者) の条件の値が、kintone のクエリの関数 (LOGINUSER() = API を実行したユーザー・
+        /// PRIMARY_ORGANIZATION() = その優先する組織) の形か。そういう値は条件に書かない (合う行なし): 利用者の文字のつもりの値を、kintone が
+        /// 連携用のアカウントに読み替えないようにする (コネクターは値を "..." で書くが、kintone が "..." の中を関数として読まないことを実物で確かめていない)。
+        /// </summary>
+        internal static bool IsQueryFunctionText(KintoneColumnDefinition column, string text)
+            => column.FieldType is "CREATOR" or "MODIFIER" or "USER_SELECT" or "ORGANIZATION_SELECT" or "STATUS_ASSIGNEE" && QueryFunctionText.IsMatch(text);
+
+        /// <summary>
+        /// 日付・時刻の列が持てない細かさの値 (日付の列に時刻の入った日時・時刻の列に分より細かい時刻) なら、列の細かさに切り捨てた値。そうでなければ null。
+        /// </summary>
+        internal static object? Coarser(KintoneColumnDefinition column, object? value) => column.Kind switch
+        {
+            KintoneColumnKind.Date => value is DateTime dateTime && dateTime.TimeOfDay != TimeSpan.Zero ? DateOnly.FromDateTime(dateTime) : null,
+            KintoneColumnKind.Time => value switch
+            {
+                TimeOnly time when time.Ticks % TimeSpan.TicksPerMinute != 0 => new TimeOnly(time.Hour, time.Minute),
+                TimeSpan span when TimeSpan.Zero <= span && span < TimeSpan.FromDays(1) && span.Ticks % TimeSpan.TicksPerMinute != 0
+                    => new TimeOnly(span.Hours, span.Minutes),
+                _ => null,
+            },
+            _ => null,
+        };
 
         /// <summary>突き合わせ・Id に使う値の文字 (数値は末尾の 0 を落とす: 1.0 と 1 を同じにする)。</summary>
         internal static string KeyText(object value)
@@ -623,6 +661,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                 {
                     var q = 0;
                     var column = ReadColumn(item, ref q, scope, sql);
+                    CheckComparable(scope, column.Alias, column.Column, "a sort order");
                     var descending = false;
                     if (q < item.Count && (item[q].IsWord("desc") || item[q].IsWord("asc")))
                     {
@@ -789,6 +828,17 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         {
             if (definition.FindColumn(column) == null) throw new KintoneException($"kintone app '{definition.Name}' has no field '{column}' (or the field type cannot be used as a column).");
         }
+
+        //添付 (FILE)・テーブル (SUBTABLE) の列は値が JSON 配列の文字で、並び・集計に使えない (kintone も並べられない。条件と同じく拒否する)
+        static void CheckComparable(KintoneTableDefinition definition, string column, string what)
+        {
+            var found = definition.FindColumn(column);
+            if (found != null && (found.IsAttachments || found.IsSubtable))
+                throw new KintoneException($"kintone field '{found.Name}' ({found.FieldType}) cannot be used in {what} (the value is a JSON array).", KintoneErrorKind.NotSupported);
+        }
+
+        static void CheckComparable(Scope scope, string alias, string column, string what)
+            => CheckComparable(scope.Aliases[alias], column, what);
 
         static bool IsKeyword(SqlToken token)
             => token.Kind == SqlTokenKind.Word &&
@@ -1221,18 +1271,33 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             if (op == TermOperator.IsNull) return column.IsNeverEmpty ? new ConstNode(false) : new TermNode(column, op, null);
             if (op == TermOperator.IsNotNull) return column.IsNeverEmpty ? new ConstNode(true) : new TermNode(column, op, null);
             if (op is TermOperator.Like or TermOperator.NotLike) return new TermNode(column, op, Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty);
+            if (Coarser(column, value) is { } coarse)
+            {
+                //列が持てない細かさの値との比較は PostgreSQL と同じ意味にする (列の値はその日の 0:00・その分の 0 秒として比べる):
+                //= は合う行なし、<> は空でない行、< と <= は「切り捨てた値以下」、> と >= は「切り捨てた値より後」
+                return op switch
+                {
+                    TermOperator.Equal => NeverEqual(column),
+                    TermOperator.NotEqual => new NotNode(NeverEqual(column)),
+                    TermOperator.Less or TermOperator.LessOrEqual => new TermNode(column, TermOperator.LessOrEqual, coarse),
+                    _ => new TermNode(column, TermOperator.Greater, coarse),
+                };
+            }
             if (LiteralFor(column, value!) == null)
             {
                 //列の種類で書けない値: 等しい行は無い。等しくない行は空でない行の全部。大小は比べられない
                 return op switch
                 {
-                    TermOperator.Equal => new ConstNode(false),
-                    TermOperator.NotEqual => CreateTerm(column, TermOperator.IsNotNull, null),
+                    TermOperator.Equal => NeverEqual(column),
+                    TermOperator.NotEqual => new NotNode(NeverEqual(column)),
                     _ => throw new KintoneException($"The value '{KeyText(value!)}' cannot be compared with kintone field '{column.Name}'.", KintoneErrorKind.InvalidRequest),
                 };
             }
             return new TermNode(column, op, value);
         }
+
+        //どの行とも等しくならない値との「等しい」: 真になる行は無く、偽になるのは空でない行 (空の行は unknown。not や Not In の中でも空の行は合わない)
+        static FilterNode NeverEqual(KintoneColumnDefinition column) => new TriNode(new ConstNode(false), CreateTerm(column, TermOperator.IsNotNull, null));
 
         static TermNode Negate(TermNode term) => term with
         {
@@ -1432,7 +1497,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
         /// と、グループの数を数える select count(*) from (select 1 as "x" from ... group by ... having ...) x。
         /// 行を選ぶ定義 (WithinGroupsOf) は、結合の最後の inner join (同じ表の集計) 別名 on (列 = 別名."gN" or (列 is null and 別名."gN" is null)) and ... [on 1=1]。
         /// その集計の行数を数える select count(*) from ... inner join (...) ... where ... も受け付ける (別名なしの count(*) 1 つ)。
-        /// 日付の丸め (date_trunc など) は拒否する。
+        /// 日付の軸は本体の PostgreSQL の丸めの式だけを受け付ける (<see cref="ReadGroupKey"/>。メモリで同じ意味に計算する)。
         /// </summary>
         internal static async Task<KintoneAggregate> TranslateAggregateAsync(string sql, IReadOnlyDictionary<string, object?> args, Func<string, Task<KintoneTableDefinition>> getDefinition)
         {
@@ -1648,12 +1713,12 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                     if (t.Count <= p || !t[p].IsIdentifier) throw NotSupported(sql);
                     return t[p++].Text;
                 }
-                var outer = ReadColumn(t, ref p, scope, sql);
+                var outer = ReadGroupKey(t, ref p, scope, sql);
                 Expect(e => e.IsSymbol("="));
                 var innerAlias = Inner();
                 Expect(e => e.IsWord("or"));
                 Expect(e => e.IsSymbol("("));
-                if (ReadColumn(t, ref p, scope, sql) != outer) throw NotSupported(sql);
+                if (ReadGroupKey(t, ref p, scope, sql) != outer) throw NotSupported(sql);
                 Expect(e => e.IsWord("is"));
                 Expect(e => e.IsWord("null"));
                 Expect(e => e.IsWord("and"));
@@ -1664,7 +1729,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                 if (p != t.Count) throw NotSupported(sql);
                 //選ぶ集計の軸の列だけと突き合わせる
                 if (!plan.Items.Any(e => e.Alias == innerAlias && e.Expression is AggregateColumn)) throw NotSupported(sql);
-                within.On.Add((new AggregateColumn(outer.Alias, outer.Column), innerAlias));
+                within.On.Add((outer, innerAlias));
             }
             return within;
         }
@@ -1703,22 +1768,103 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             return parts;
         }
 
-        static readonly string[] DateFunctions = { "date_trunc", "to_char", "interval", "extract", "date_part", "make_date" };
+        /// <summary>
+        /// 軸の式: 列か、本体の日付の軸 (AggregateSqlCreator の PostgreSQL の丸め) の式。受け付ける形は
+        /// date_trunc('hour' | 'day' | 'week' | 'month', C) と (date_trunc('quarter' | 'year', S)[ + interval 'F months'])。
+        /// C は 列 か (列 + interval 'N minutes')、S は C か (C - interval 'F months')。ほかの日付の式 (to_char など) は拒否する。
+        /// </summary>
+        static AggregateColumn ReadGroupKey(List<SqlToken> t, ref int p, Scope scope, string sql)
+        {
+            bool At(int i, Func<SqlToken, bool> predicate) => i < t.Count && predicate(t[i]);
+            var wrapped = At(p, e => e.IsSymbol("(")) && At(p + 1, e => e.IsWord("date_trunc"));
+            if (!wrapped && !At(p, e => e.IsWord("date_trunc")))
+            {
+                var (alias, column) = ReadColumn(t, ref p, scope, sql);
+                CheckComparable(scope, alias, column, "an aggregation");
+                return new AggregateColumn(alias, column);
+            }
+            var q = p;
+            void Expect(Func<SqlToken, bool> predicate)
+            {
+                if (!At(q, predicate)) throw NotSupported(sql);
+                q++;
+            }
+            //interval 'N 単位' の N
+            int Interval(string unit)
+            {
+                Expect(e => e.IsWord("interval"));
+                if (!At(q, e => e.Kind == SqlTokenKind.StringLiteral)) throw NotSupported(sql);
+                var parts = t[q++].Text.Split(' ');
+                if (parts.Length != 2 || parts[1] != unit || !int.TryParse(parts[0], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var n)) throw NotSupported(sql);
+                return n;
+            }
 
-        /// <summary>日付を期間に丸める軸 (本体の日付の軸) の拒否。kintone のクエリに日付の式が無い。</summary>
-        static KintoneException DateBucketNotSupported()
-            => new("Grouping by a period of a date (day / week / month / quarter / year) is not supported for a kintone data source. " +
-                   "Add a calculated field for the period (for example DATE_FORMAT of the date as the year and month) to the kintone app and group by that field.");
+            if (wrapped) q++;
+            Expect(e => e.IsWord("date_trunc"));
+            Expect(e => e.IsSymbol("("));
+            if (!At(q, e => e.Kind == SqlTokenKind.StringLiteral)) throw NotSupported(sql);
+            var unit = t[q++].Text.ToLowerInvariant();
+            Expect(e => e.IsSymbol(","));
+
+            //S = C か (C - interval 'F months')、C = 列 か (列 + interval 'N minutes')
+            var shift = 0;
+            var fiscal = 0;
+            var opens = 0;
+            while (At(q, e => e.IsSymbol("("))) { q++; opens++; }
+            if (opens > 2) throw NotSupported(sql);
+            var (columnAlias, columnName) = ReadColumn(t, ref q, scope, sql);
+            CheckComparable(scope, columnAlias, columnName, "an aggregation");
+            for (var i = 0; i < opens; i++)
+            {
+                if (At(q, e => e.IsSymbol("+")) && i == 0)
+                {
+                    q++;
+                    shift = Interval("minutes");
+                }
+                else if (At(q, e => e.IsSymbol("-")))
+                {
+                    q++;
+                    fiscal = Interval("months");
+                    if (i != opens - 1) throw NotSupported(sql);
+                }
+                else throw NotSupported(sql);
+                Expect(e => e.IsSymbol(")"));
+            }
+            Expect(e => e.IsSymbol(")"));
+
+            if (unit is "hour" or "day" or "week" or "month")
+            {
+                if (wrapped || fiscal != 0) throw NotSupported(sql);
+            }
+            else if (unit is "quarter" or "year")
+            {
+                if (!wrapped) throw NotSupported(sql);
+                var back = 0;
+                if (At(q, e => e.IsSymbol("+")))
+                {
+                    q++;
+                    back = Interval("months");
+                }
+                if (back != fiscal || fiscal is < 0 or > 11) throw NotSupported(sql);
+                Expect(e => e.IsSymbol(")"));
+            }
+            else throw NotSupported(sql);
+            p = q;
+            return new AggregateColumn(columnAlias, columnName, new DateBucketSpec(unit, shift, fiscal));
+        }
 
         static AggregateExpression ParseAggregateExpression(List<SqlToken> tokens, Scope scope, string sql)
         {
-            if (tokens.Any(e => e.Kind == SqlTokenKind.Word && DateFunctions.Any(f => e.IsWord(f)))) throw DateBucketNotSupported();
             if (tokens.Count == 1 && tokens[0].Kind == SqlTokenKind.Number && tokens[0].Text == "1") return new AggregateConstant();
 
             var p = 0;
-            AggregateColumn Column()
+            //軸 (日付の丸めを含む)
+            AggregateColumn Column() => ReadGroupKey(tokens, ref p, scope, sql);
+            //集計する列 (丸めない)
+            AggregateColumn Measured()
             {
                 var (alias, column) = ReadColumn(tokens, ref p, scope, sql);
+                CheckComparable(scope, alias, column, "an aggregation");
                 return new AggregateColumn(alias, column);
             }
             void Expect(Func<SqlToken, bool> predicate)
@@ -1767,7 +1913,7 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                     return Done(new AggregateRank(column, codes, otherwise));
                 }
             }
-            if (tokens.Count >= 4 && tokens[0].Kind == SqlTokenKind.Word && tokens[1].IsSymbol("("))
+            if (tokens.Count >= 4 && tokens[0].Kind == SqlTokenKind.Word && tokens[1].IsSymbol("(") && !tokens[0].IsWord("date_trunc"))
             {
                 var function = tokens[0].Text.ToLowerInvariant();
                 p = 2;
@@ -1780,11 +1926,11 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
                 else if (function == "count" && tokens[2].IsWord("distinct"))
                 {
                     p = 3;
-                    call = new AggregateFunctionCall("countdistinct", Column());
+                    call = new AggregateFunctionCall("countdistinct", Measured());
                 }
                 else if (function is "sum" or "avg" or "min" or "max")
                 {
-                    call = new AggregateFunctionCall(function, Column());
+                    call = new AggregateFunctionCall(function, Measured());
                 }
                 else
                 {

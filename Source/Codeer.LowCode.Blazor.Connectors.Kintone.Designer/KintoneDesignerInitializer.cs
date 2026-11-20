@@ -18,12 +18,14 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Designer
         /// <summary>
         /// kintone のモジュールを設計するための AI 用の仕様ドキュメントを登録する (ai-refresh が _specs/Kintone.md に書き出す)。
         /// デザイナのアプリの OnStartup で、base.OnStartup(e) より前に呼ぶ。
-        /// これを呼ぶと、<see cref="CreateDbAccessor"/> の IDbAccessor は kintone のアプリの定義を、プロジェクトのフォルダに保存したファイルから読む
+        /// これを呼ぶと、<see cref="CreateDbAccessor"/> の IDbAccessor は kintone のアプリの定義を、プロジェクトに保存したメタ情報のファイル (サーバー専用ファイル) から読む
         /// (kintone に取りに行くのは Tools のメニューで更新したときだけ。headless の CLI でも同じ)。
         /// </summary>
         public static void Initialize(DesignerEnvironment designerEnvironment)
         {
             _environment = designerEnvironment;
+            //添付のフィールドをツールボックスに出す (本体は読み込み済みのアセンブリからフィールドの型を探す)
+            KintoneFieldsInitializer.Initialize();
             var assembly = typeof(KintoneDesignerInitializer).Assembly;
             foreach (var name in assembly.GetManifestResourceNames()
                          .Where(e => e.StartsWith(Prefix, StringComparison.Ordinal) && e.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
@@ -45,9 +47,14 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Designer
 
         /// <summary>
         /// デザイナ用の IDbAccessor (IDbAccessorFactory の実装で使う)。kintone 以外のデータソースは inner が受け持つ。
+        /// kintone のアプリの定義はプロジェクトのメタ情報のファイル (サーバー専用ファイル) から読む。プロジェクトを開いていなければ kintone のフォームの設定を読む。
         /// </summary>
         public static IDbAccessor CreateDbAccessor(IDbAccessor inner, IEnumerable<DataSource> dataSources)
-            => new KintoneDbAccessor(inner, KintoneConnection.FromDataSources(dataSources), GetProjectDirectory());
+        {
+            var directory = GetProjectDirectory();
+            return new KintoneDbAccessor(inner, KintoneConnection.FromDataSources(dataSources),
+                string.IsNullOrEmpty(directory) ? null : KintoneMetadataFile.FromProject(directory));
+        }
 
         static string? GetProjectDirectory()
         {

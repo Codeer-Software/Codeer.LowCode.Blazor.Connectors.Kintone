@@ -1,4 +1,6 @@
+using Codeer.LowCode.Blazor.DesignLogic;
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -6,11 +8,12 @@ using System.Text.Json.Serialization;
 namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
 {
     /// <summary>
-    /// 表の定義 (メタ情報) を保存したファイル。デザイナはこのファイルから表の定義を読む (kintone に取りに行かない)。
-    /// データソースごとに 1 つ、デザインのプロジェクトのフォルダに置く (kintone.&lt;データソース名&gt;.metadata.json)。
-    /// 接続の情報 (URL・アプリ ID・トークン) とレコードは入らない。
+    /// アプリの定義 (メタ情報) を保存したファイル (kintone.&lt;データソース名&gt;.metadata.json)。デザインのプロジェクトのサーバー専用ファイルに置き、
+    /// デザインと一緒に配られる (App.zip に入る)。デザイナも Web アプリもこのファイルからアプリの定義を読む (kintone に取りに行かない)。
+    /// 接続の情報 (URL・アプリ ID・トークン) とレコードは入らない (アプリ ID は実行時の接続文字列の Apps のものを使う)。
+    /// 項目名・選択肢も入れる (画面を作るときの手がかり)。
     /// </summary>
-    public static class KintoneMetadataFile
+    public sealed class KintoneMetadataFile
     {
         class TableData
         {
@@ -56,30 +59,63 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             Converters = { new JsonStringEnumConverter() },
         };
 
-        static readonly ConcurrentDictionary<string, (DateTime LastWriteTimeUtc, List<KintoneTableDefinition> Tables)> _cache = new(StringComparer.OrdinalIgnoreCase);
         static readonly ConcurrentDictionary<string, SemaphoreSlim> _updateLocks = new(StringComparer.OrdinalIgnoreCase);
 
-        //テストで置き換えの途中の失敗を起こすための差し替え口 (一時ファイルに書いたあと、読み直す前に呼ぶ)
-        internal static Action<string>? AfterTemporaryFileWritten { get; set; }
-
-        public static string GetPath(string directory, string dataSourceName)
+        //読んだ定義 (場所とデータソースごと)。中身 (プロジェクト) か App.zip の更新日時と大きさ (配られたデザイン) が変わるまで使い回す。
+        //値は差し替えるだけで中を変えないので、読む側はロックなしで使える。同じ場所を同時に読み直すのは 1 つだけ (Entry のロック)
+        sealed class Entry
         {
-            var name = string.Concat(dataSourceName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
-            return Path.Combine(directory, $"kintone.{name}.metadata.json");
+            public object Sync { get; } = new();
+            public (object Stamp, List<KintoneTableDefinition> Tables)? Loaded { get; set; }
         }
 
-        /// <summary>
-        /// kintone からアプリのフォームの設定を読み直して、ファイルに保存する。
-        /// 同じフォルダの一時ファイルに書いて読み直して確かめてから置き換える (途中で失敗しても前のファイルが残る)。同じデータソースの更新は直列にする。
-        /// </summary>
-        public static async Task UpdateAsync(KintoneConnection connection, string directory)
+        static readonly ConcurrentDictionary<string, Entry> _cache = new(StringComparer.OrdinalIgnoreCase);
+
+        readonly string _directory;
+        readonly bool _isDeployedDesign;
+
+        KintoneMetadataFile(string directory, bool isDeployedDesign)
         {
-            var path = GetPath(directory, connection.Settings.Name);
-            var updateLock = _updateLocks.GetOrAdd(Path.GetFullPath(path), _ => new SemaphoreSlim(1, 1));
+            //空は今のフォルダ (本体が App.zip を探す場所と同じ)
+            _directory = string.IsNullOrEmpty(directory) ? Directory.GetCurrentDirectory() : Path.GetFullPath(directory);
+            _isDeployedDesign = isDeployedDesign;
+        }
+
+        /// <summary>デザインのプロジェクトのファイル (デザイナ用)。</summary>
+        /// <param name="projectDirectory">デザインのプロジェクトのフォルダ。</param>
+        public static KintoneMetadataFile FromProject(string projectDirectory) => new(projectDirectory, false);
+
+        /// <summary>配られたデザイン (App.zip) の中のファイル (Web アプリ用)。App.zip が差し替わると次の読み出しから新しい内容になる。</summary>
+        /// <param name="designFileDirectory">App.zip のあるフォルダ。</param>
+        public static KintoneMetadataFile FromDeployedDesign(string designFileDirectory) => new(designFileDirectory, true);
+
+        /// <summary>
+        /// ファイル名 (サーバー専用ファイルの置き場からの相対パス)。データソース名の文字 (日本語なども含む)・数字・_・-・. 以外は _ にする
+        /// (OS に依らない決まり。Windows のデザイナと Linux の Web アプリで同じ名前になる)。
+        /// </summary>
+        internal static string GetFileName(string dataSourceName)
+            => $"kintone.{string.Concat(dataSourceName.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' or '.' ? c : '_'))}.metadata.json";
+
+        /// <summary>
+        /// 接続の Apps の全部のアプリのフォームの設定を読み直して、プロジェクトのサーバー専用ファイルに保存する (次のデプロイでデザインと一緒に配られる)。
+        /// 読めなければファイルを変えない。書く内容を読み直して確かめてから、書き終えてから置き換える (途中で失敗しても前のファイルが残る)。同じファイルの更新は直列にする。
+        /// </summary>
+        /// <param name="connection">kintone への接続。</param>
+        /// <param name="projectDirectory">デザインのプロジェクトのフォルダ。</param>
+        public static async Task UpdateAsync(KintoneConnection connection, string projectDirectory)
+        {
+            var fileName = GetFileName(connection.Settings.Name);
+            var updateLock = _updateLocks.GetOrAdd(Path.Combine(Path.GetFullPath(projectDirectory), fileName), _ => new SemaphoreSlim(1, 1));
             await updateLock.WaitAsync();
             try
             {
-                await SaveAsync(path, await connection.ReloadTableDefinitionsAsync());
+                var tables = await connection.ReloadTableDefinitionsAsync();
+                var bytes = Serialize(tables);
+                //書く内容を読み直して、同じ定義になることを確かめてから書く
+                var written = Parse(bytes, fileName);
+                if (written.Count != tables.Count || written.Sum(e => e.Columns.Count) != tables.Sum(e => e.Columns.Count))
+                    throw new KintoneException($"The kintone metadata file '{fileName}' could not be written correctly.");
+                DesignDataFileManager.WriteProjectServerFile(projectDirectory, fileName, bytes);
             }
             finally
             {
@@ -112,64 +148,82 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             IsUnique = column.Unique,
             IsLookup = column.Lookup,
             Options = column.Options,
-            SubFields = column.Fields?.Where(e => KintoneTableDefinition.IsUsableColumnName(e.Name)).Select(ToDefinition).ToList(),
+            SubFields = column.Fields?.Where(e => e != null && KintoneTableDefinition.IsUsableColumnName(e.Name)).Select(ToDefinition).ToList(),
         };
 
-        static async Task SaveAsync(string path, List<KintoneTableDefinition> tables)
+        static byte[] Serialize(List<KintoneTableDefinition> tables)
         {
             var data = new FileData
             {
                 //表の順は設定 (Apps) の順のまま
                 Tables = tables.Select(table => new TableData { Name = table.Name, Columns = table.Columns.Select(ToData).ToList() }).ToList(),
             };
-            var text = JsonSerializer.Serialize(data, _jsonOptions);
-
-            var temporary = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
-            try
-            {
-                await File.WriteAllTextAsync(temporary, text);
-                AfterTemporaryFileWritten?.Invoke(temporary);
-                //書けた内容を読み直して、同じ定義になることを確かめてから置き換える
-                var written = Parse(await File.ReadAllTextAsync(temporary), path);
-                if (written.Count != tables.Count || written.Sum(e => e.Columns.Count) != tables.Sum(e => e.Columns.Count))
-                    throw new KintoneException($"The kintone metadata file '{Path.GetFileName(path)}' could not be written correctly.");
-                File.Move(temporary, path, true);
-            }
-            finally
-            {
-                if (File.Exists(temporary)) File.Delete(temporary);
-            }
+            return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(data, _jsonOptions));
         }
 
-        /// <summary>保存してある定義。ファイルが無ければ null。</summary>
-        internal static List<KintoneTableDefinition>? Load(string directory, string dataSourceName)
+        /// <summary>このファイルのアプリの定義。ファイルが無ければ空。</summary>
+        internal List<KintoneTableDefinition> Load(string dataSourceName)
         {
-            var path = GetPath(directory, dataSourceName);
-            if (!File.Exists(path)) return null;
-            var lastWriteTimeUtc = File.GetLastWriteTimeUtc(path);
-            if (_cache.TryGetValue(path, out var cached) && cached.LastWriteTimeUtc == lastWriteTimeUtc) return cached.Tables;
-            var tables = Parse(File.ReadAllText(path), path);
-            _cache[path] = (lastWriteTimeUtc, tables);
-            return tables;
+            var fileName = GetFileName(dataSourceName);
+            var entry = _cache.GetOrAdd((_isDeployedDesign ? "zip|" : "project|") + _directory + "|" + fileName, _ => new Entry());
+            lock (entry.Sync)
+            {
+                if (_isDeployedDesign)
+                {
+                    //App.zip の更新日時と大きさで差し替えを知る (読む前に取る。読む間に差し替わっても、次の読み出しで日時が違うので読み直す)
+                    var stamp = ZipStamp();
+                    if (entry.Loaded is { } loaded && loaded.Stamp.Equals(stamp)) return loaded.Tables;
+                    using var stream = DesignDataFileManager.GetServerFile(_directory, fileName);
+                    var tables = stream == null ? new List<KintoneTableDefinition>() : Parse(stream.ToArray(), fileName);
+                    entry.Loaded = (stamp, tables);
+                    return tables;
+                }
+                else
+                {
+                    //プロジェクトのファイルは中身で比べる (小さいファイルなので読むのは毎回。解釈は変わったときだけ)
+                    var bytes = DesignDataFileManager.ReadProjectServerFile(_directory, fileName);
+                    var content = bytes == null ? string.Empty : Convert.ToBase64String(bytes);
+                    if (entry.Loaded is { } loaded && loaded.Stamp.Equals(content)) return loaded.Tables;
+                    var tables = bytes == null ? new List<KintoneTableDefinition>() : Parse(bytes, fileName);
+                    entry.Loaded = (content, tables);
+                    return tables;
+                }
+            }
         }
 
-        static List<KintoneTableDefinition> Parse(string text, string path)
+        //App.zip の名前は本体の配置の決まり (DesignDataFileManager が読む <フォルダ>/App.zip)
+        (bool Exists, DateTime LastWriteTimeUtc, long Length) ZipStamp()
+        {
+            var zip = new FileInfo(Path.Combine(_directory, "App.zip"));
+            return zip.Exists ? (true, zip.LastWriteTimeUtc, zip.Length) : (false, default, 0);
+        }
+
+        /// <summary>アプリ (表) がファイルに無いときのエラー (どこを直せばよいかを入れる)。</summary>
+        internal KintoneException TableNotFound(string dataSourceName, string table)
+            => new(_isDeployedDesign
+                ? $"Table '{table}' is not in the kintone metadata ({GetFileName(dataSourceName)}) of the deployed design. Update the kintone metadata in the designer and deploy the design again."
+                : $"Table '{table}' is not in the kintone metadata ({GetFileName(dataSourceName)}) of the design project. Update the kintone metadata (Tools menu of the designer).",
+                KintoneErrorKind.NotFound);
+
+        static List<KintoneTableDefinition> Parse(byte[] bytes, string fileName)
         {
             FileData? data;
             try
             {
-                data = JsonSerializer.Deserialize<FileData>(text, _jsonOptions);
+                data = JsonSerializer.Deserialize<FileData>(bytes, _jsonOptions);
             }
             catch (JsonException e)
             {
-                throw new KintoneException($"The kintone metadata file '{Path.GetFileName(path)}' cannot be read. Update the kintone metadata again.", KintoneErrorKind.NotSupported, e);
+                throw new KintoneException($"The kintone metadata file '{fileName}' cannot be read. Update the kintone metadata again.", KintoneErrorKind.NotSupported, e);
             }
             var tables = new List<KintoneTableDefinition>();
             foreach (var table in data?.Tables ?? new())
             {
-                if (!KintoneTableDefinition.IsUsableTableName(table.Name)) continue;
+                //手で直したファイルの null (要素・Columns) は無いものとして読む。同じ名前の表が 2 つあれば先のもの
+                if (table == null || !KintoneTableDefinition.IsUsableTableName(table.Name)) continue;
+                if (tables.Any(e => string.Equals(e.Name, table.Name, StringComparison.OrdinalIgnoreCase))) continue;
                 var definition = new KintoneTableDefinition { Name = table.Name };
-                foreach (var column in table.Columns.Where(e => KintoneTableDefinition.IsUsableColumnName(e.Name)))
+                foreach (var column in (table.Columns ?? new()).Where(e => e != null && KintoneTableDefinition.IsUsableColumnName(e.Name)))
                 {
                     if (definition.FindColumn(column.Name) == null) definition.Columns.Add(ToDefinition(column));
                 }

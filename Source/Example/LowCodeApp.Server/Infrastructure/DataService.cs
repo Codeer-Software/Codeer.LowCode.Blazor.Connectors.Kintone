@@ -12,6 +12,8 @@ namespace LowCodeApp.Server.Infrastructure
         public DbAccessor DbAccess { get; }
         public TemporaryFileManager TemporaryFileManager { get; }
         public CustomizedModuleDataIO ModuleDataIO { get; }
+        //kintone のデータソースを受け持つアクセサ (添付ファイルのダウンロードで使う)
+        public KintoneDbAccessor Kintone { get; }
         //このリクエストが使うデザイン (最初に参照した時点の版に固定)
         public RequestDesign Design { get; }
         readonly IHttpContextAccessor? _httpContextAccessor;
@@ -23,9 +25,10 @@ namespace LowCodeApp.Server.Infrastructure
             Design = design ?? new RequestDesign();
             DbAccess = new DbAccessor(SystemConfig.Instance.DataSources);
             TemporaryFileManager = new TemporaryFileManager(DbAccess, SystemConfig.Instance.TemporaryFileTableInfo, FileStorageTable.Storages, this);
-            //kintone のデータソースはコネクターが、それ以外は DbAccess が受け持つ
-            var kintone = new KintoneDbAccessor(DbAccess, KintoneConnection.FromDataSources(SystemConfig.Instance.DataSources));
-            ModuleDataIO = new CustomizedModuleDataIO(Design.DesignData, this, kintone, TemporaryFileManager);
+            //kintone のデータソースはコネクターが、それ以外は DbAccess が受け持つ。アプリの定義は配られたデザインのメタ情報のファイルから読む
+            Kintone = new KintoneDbAccessor(DbAccess, KintoneConnection.FromDataSources(SystemConfig.Instance.DataSources),
+                KintoneMetadataFile.FromDeployedDesign(SystemConfig.Instance.DesignFileDirectory));
+            ModuleDataIO = new CustomizedModuleDataIO(Design.DesignData, this, Kintone, TemporaryFileManager);
         }
 
         //リクエストの外 (ジョブなど) で、そのユーザーの権限で使う DataService

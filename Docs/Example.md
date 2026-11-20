@@ -2,11 +2,11 @@
 
 `Source/Example` は、コネクターを組み込んだ Web アプリ (Cookie 認証のテンプレート) とデザイナ、そのデザインのプロジェクトです。
 kintone のモックにつないで、顧客・商品・受注 (テーブルの明細つき) の一覧・検索・詳細・保存と、
-ルックアップ・リンク越しの項目での検索と並び・集計・kintone のアカウントでのログインを試せます。
+ルックアップ・リンク越しの項目での検索と並び・集計・添付ファイル・kintone のアカウントでのログインを試せます。
 
 | フォルダ | 内容 |
 |---|---|
-| `LowCodeApp.Server` / `LowCodeApp.Client` / `LowCodeApp.Client.Shared` | Web アプリ。コネクターの組み込みは `LowCodeApp.Server/Infrastructure/DataService.cs` の 2 行 |
+| `LowCodeApp.Server` / `LowCodeApp.Client` / `LowCodeApp.Client.Shared` | Web アプリ。コネクターの組み込みは `LowCodeApp.Server/Infrastructure/DataService.cs` の 2 行。添付ファイルのフィールドの組み込みは下の「添付ファイル」 |
 | `LowCodeApp.Designer` | コネクターを組み込んだデザイナ |
 | `Design` | デザインのプロジェクト (`app.clprj`)。モジュール `Customer` / `Product` / `Order` / `OrderLine` (kintone)、`SalesByCustomer` (見本の画面) と `AppUser` (ログインするユーザー・SQLite) |
 | `Data/main.sql` | ログインするユーザーの表と、最初のユーザー (admin / admin)・kintone のアカウントでログインするユーザー (山田 太郎) |
@@ -52,7 +52,7 @@ Provider=Kintone;Host=http://localhost:5084;Apps=Customer:1,Product:2,Order:3;Ap
 }
 ```
 
-アプリとフィールドの定義は `Design/kintone.Kintone.metadata.json` (モックの定義から作ったもの) から読みます。モックのデータのファイルを変えたときは、デザイナで Tools > kintone のメタ情報を更新 を実行します。
+アプリとフィールドの定義は `Design/ServerFiles/kintone.Kintone.metadata.json` (モックの定義から作ったもの) から読みます。デザイナも Web アプリもこのファイルを読み、kintone (モック) に定義を取りに行きません (Web アプリはデプロイした `App.zip` の中のものを読みます)。モックのデータのファイルを変えたときは、デザイナで Tools > kintone のメタ情報を更新 を実行してから、デザインを送り直します。
 
 ## 3. ログインするユーザーの DB を作る
 
@@ -99,6 +99,16 @@ dotnet run --project Source/Example/LowCodeApp.Server --launch-profile http
 
 - 受注の一覧に顧客名 (リンク越しの項目 `Customer.CustomerName`) を出し、顧客名で検索・並べ替えます (並びはページフレームの受注のリンクの設定)
 - 明細は受注の詳細の中で足す・直す・消すことができ、受注と一緒に 1 回で保存されます。小計と合計は保存のあとで読み直すと出ます
+- 受注の添付ファイル (`Attachments`) は kintone の添付ファイルのフィールドです。詳細でファイルを足す・消す・ダウンロードでき、一覧ではファイル名だけが並びます。
+  モックの受注 1・2・7 には最初からファイル (中身は仮の文字) があります
 - 選択肢の Enum (`Design/Enums/顧客状態.enum.json` など) は、メタ情報のファイルの選択肢 (`Options`) を写したものです。kintone には選択肢の文字がそのまま入ります
+
+### 添付ファイル
+
+添付ファイルのフィールドのために、Example には次の組み込みがあります。
+
+- `LowCodeApp.Client.Shared` がフィールドのプロジェクト (`Codeer.LowCode.Blazor.Connectors.Kintone`) を参照し、`AppInfoService` のコンストラクタと `LowCodeApp.Server/Program.cs` で `KintoneFieldsInitializer.Initialize()` を呼びます
+- `DataService` の `Kintone` プロパティ (`KintoneDbAccessor`)
+- ダウンロードの口 `LowCodeApp.Server/Controllers/KintoneAttachmentsController.cs` (ログインが要る・そのレコードのそのフィールドのファイルだけ返す)
 
 DB とデザインの置き場所は `LowCodeApp.Server/appsettings.Development.json` (`ConnectionStrings:Main`・`DesignFileDirectory`) です。環境変数 `ConnectionStrings__Main`・`DesignFileDirectory` でも上書きできます。

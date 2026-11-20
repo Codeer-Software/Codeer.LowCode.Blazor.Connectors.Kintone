@@ -295,6 +295,31 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
             Assert.That(customer.Query, Does.StartWith("RegionCode in (\"R1\", \"R3\") order by"));
         }
 
+        [Test]
+        public async Task 日時の列から日付の列への結合は0時の日時を日付として突き合わせる()
+        {
+            //結合元 = 最終連絡 (日時)、結合先 = 取引開始日 (日付)。PostgreSQL と同じく 0:00 の日時だけがその日と等しい
+            _h.Fake.Records[TestMetadata.CustomerApp] = new()
+            {
+                FakeKintone.Record(1, 1, ("Name", "SINGLE_LINE_TEXT", "A"), ("LastContact", "DATETIME", "2026-04-01T15:00:00Z")),
+                FakeKintone.Record(2, 1, ("Name", "SINGLE_LINE_TEXT", "B"), ("LastContact", "DATETIME", "2026-04-01T00:00:00Z")),
+                FakeKintone.Record(3, 1, ("Name", "SINGLE_LINE_TEXT", "C"), ("LastContact", "DATETIME", "2026-04-01T09:30:00Z")),
+                FakeKintone.Record(4, 1, ("Name", "SINGLE_LINE_TEXT", "D"), ("LastContact", "DATETIME", "")),
+                FakeKintone.Record(5, 1, ("Name", "SINGLE_LINE_TEXT", "E"), ("StartDate", "DATE", "2026-04-01")),
+            };
+
+            var rows = await _h.Accessor.QueryAsync(TestConnections.DataSourceName, """
+                select "Customer"."Name" as "name","c_1"."Name" as "joined" from "Customer" left join "Customer" as "c_1" on "Customer"."LastContact"="c_1"."StartDate"
+                """, new());
+
+            Assert.That(rows.Select(e => ((string)e["name"], (string?)e["joined"])), Is.EqualTo(new (string, string?)[]
+            {
+                ("A", null), ("B", "E"), ("C", null), ("D", null), ("E", null),
+            }));
+            //結合先は日付の値で読む (時刻の入った日時は読む値に入れない)
+            Assert.That(_h.ListReads(TestMetadata.CustomerApp).Last().Query, Is.EqualTo("StartDate = \"2026-04-01\" order by $id asc limit 500"));
+        }
+
         // ---------------------------------------------------------------- 追加
 
         [Test]
@@ -898,29 +923,6 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
             var customer = (await _h.Accessor.GetCustomTableDefinitionsAsync(TestConnections.DataSourceName, "Customer"))!;
             Assert.That(customer.Columns.Select(e => e.Name), Does.Contain("$id").And.Contain("$revision").And.Contain("顧客 名").And.Not.Contain("Spacer"));
             Assert.That(_h.Fake.Requests.Count(e => e.IsForm), Is.EqualTo(4));
-        }
-
-        [Test]
-        public async Task 保存した定義のファイルから答える()
-        {
-            var directory = Path.Combine(Path.GetTempPath(), "kintone-test-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(directory);
-            try
-            {
-                await KintoneMetadataFile.UpdateAsync(_h.Connection, directory);
-                _h.Fake.ClearRequests();
-                var accessor = new KintoneDbAccessor(_h.Inner, new[] { _h.Connection }, directory);
-                var customer = (await accessor.GetCustomTableDefinitionsAsync(TestConnections.DataSourceName, "Customer"))!;
-                Assert.That(customer.Columns.Select(e => e.Name), Does.Contain("CreditLimit"));
-                Assert.That((await accessor.GetCustomTableDefinitionsAsync(TestConnections.DataSourceName))!.Select(e => e.Name), Is.EqualTo(new[] { "Customer", "Region", "Country", "Order" }));
-                Assert.That(async () => await accessor.GetCustomTableDefinitionsAsync(TestConnections.DataSourceName, "Nothing"),
-                    Throws.InstanceOf<KintoneException>().With.Message.Contains("Update the kintone metadata"));
-                Assert.That(_h.Fake.Requests, Is.Empty);
-            }
-            finally
-            {
-                Directory.Delete(directory, true);
-            }
         }
     }
 }

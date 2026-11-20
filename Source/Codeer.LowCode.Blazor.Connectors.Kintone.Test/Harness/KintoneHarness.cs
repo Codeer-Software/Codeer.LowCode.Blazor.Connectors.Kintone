@@ -64,11 +64,13 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test.Harness
             public Task<string> GetCurrentUserIdAsync() => Task.FromResult("U1");
         }
 
-        public KintoneHarness(Action<KintoneConnectionSettings>? edit = null)
+        /// <param name="edit">接続の設定を変えるとき。</param>
+        /// <param name="metadataFile">アプリの定義の出所 (null なら kintone のフォームの設定を読む)。</param>
+        public KintoneHarness(Action<KintoneConnectionSettings>? edit = null, KintoneMetadataFile? metadataFile = null)
         {
             TestMetadata.AddForms(Fake);
             Connection = TestConnections.Create(Fake, Delays, edit);
-            Accessor = new KintoneDbAccessor(Inner, new[] { Connection });
+            Accessor = new KintoneDbAccessor(Inner, new[] { Connection }, metadataFile);
             Sql = new SqlLoggingDbAccessor(Accessor);
             Design = CreateDesign();
             IO = new ModuleDataIO(Design, new Auth(), Sql, null!);

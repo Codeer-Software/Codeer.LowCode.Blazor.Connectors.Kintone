@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Codeer.LowCode.Blazor.Connectors.Kintone.Server\Codeer.LowCode.Blazor.Connectors.Kintone.Server.csproj" />
+    <ProjectReference Include="..\Codeer.LowCode.Blazor.Connectors.Kintone\Codeer.LowCode.Blazor.Connectors.Kintone.csproj" />
     <ProjectReference Include="..\Kintone.Mock\Kintone.Mock.csproj" />
   </ItemGroup>
 

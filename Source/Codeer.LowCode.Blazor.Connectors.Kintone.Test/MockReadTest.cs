@@ -442,6 +442,104 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
             Assert.That(ids, Does.Contain("C-012"), "CreditLimit が空・Status が休止の行");
         }
 
+        // ---------------------------------------------------------------- どの行とも等しくならない値 (PostgreSQL の 3 値の論理)
+
+        //本体の形の SQL (where だけ差し替える) で読んだ行のレコード ID (昇順)
+        async Task<List<long>> RecordIdsBySqlAsync(string from, string where, params (string Name, object? Value)[] args)
+        {
+            var table = from.Split('"')[1];
+            var rows = await _h.Accessor.QueryAsync(TestConnections.DataSourceName, $"select \"{table}\".\"$id\" as \"id\" from {from} where {where}",
+                args.ToDictionary(e => e.Name, e => new Codeer.LowCode.Blazor.DataIO.Db.ParamAndRawDbTypeName { Value = e.Value }));
+            return rows.Select(e => Convert.ToInt64(e["id"], CultureInfo.InvariantCulture)).OrderBy(e => e).ToList();
+        }
+
+        static List<long> RecordIds(IEnumerable<JsonObject> records) => records.Select(e => e.RecordId()).OrderBy(e => e).ToList();
+
+        //(表, 列, 合わない値 2 つ, 列が空でない行)
+        static (string Table, string Column, object First, object Second, Func<JsonObject, bool> NotEmpty) NeverEqualCase(string name) => name switch
+        {
+            "日付の列に時刻の入った値" => ("Order", "OrderDate", new DateTime(2026, 4, 22, 15, 30, 0), new DateTime(2026, 5, 2, 0, 0, 1), e => e.Text("OrderDate") != null),
+            "時刻の列に秒のある値" => ("Order", "StartTime", new TimeOnly(9, 15, 30), new TimeOnly(10, 30, 1), e => e.Text("StartTime") != null),
+            "ユーザーの列に関数の形の文字" => ("Order", "Assignee", "LOGINUSER()", "primary_organization( )", e => e.Array("Assignee").Count != 0),
+            "数値の列に数値でない文字" => ("Customer", "CreditLimit", "abc", "1x", e => e.Text("CreditLimit") != null),
+            "日付の列に書式違いの文字" => ("Customer", "Since", "2019/04/01", "20190401", e => e.Text("Since") != null),
+            _ => throw new ArgumentException(name),
+        };
+
+        [TestCase("日付の列に時刻の入った値")]
+        [TestCase("時刻の列に秒のある値")]
+        [TestCase("ユーザーの列に関数の形の文字")]
+        [TestCase("数値の列に数値でない文字")]
+        [TestCase("日付の列に書式違いの文字")]
+        public async Task どの行とも等しくならない値の否定は空でない行だけ(string name)
+        {
+            var (table, column, first, second, notEmpty) = NeverEqualCase(name);
+            var c = $"\"{table}\".\"{column}\"";
+            var records = _h.Records(table == "Order" ? MockHarness.OrderApp : MockHarness.CustomerApp);
+            var nonEmpty = RecordIds(records.Where(notEmpty));
+            Assert.That(nonEmpty, Is.Not.Empty.And.Count.LessThan(records.Count), "空の行と値のある行が混ざっている");
+
+            Task<List<long>> Ids(string where) => RecordIdsBySqlAsync($"\"{table}\"", where, ("@p0", first), ("@p1", second));
+            Assert.That(await Ids($"not ({c} = @p0)"), Is.EqualTo(nonEmpty), "not (列 = 値)");
+            Assert.That(await Ids($"{c} not in (@p0, @p1)"), Is.EqualTo(nonEmpty), "列 Not In (値, 値)");
+            Assert.That(await Ids($"{c} <> @p0"), Is.EqualTo(nonEmpty), "列 <> 値");
+            Assert.That(await Ids($"not ({c} <> @p0)"), Is.Empty, "not (列 <> 値)");
+            Assert.That(await Ids($"{c} = @p0"), Is.Empty, "列 = 値");
+        }
+
+        [Test]
+        public async Task Inの一部だけが合わない値は合う値の分だけ効く()
+        {
+            var bad = new DateTime(2026, 4, 22, 15, 30, 0);
+            var good = new DateOnly(2026, 4, 22);
+
+            var inIds = await RecordIdsBySqlAsync("\"Order\"", "\"Order\".\"OrderDate\" in (@p0, @p1)", ("@p0", bad), ("@p1", good));
+            var notInIds = await RecordIdsBySqlAsync("\"Order\"", "\"Order\".\"OrderDate\" not in (@p0, @p1)", ("@p0", bad), ("@p1", good));
+
+            Assert.That(inIds, Is.EqualTo(RecordIds(Orders.Where(e => e.Date("OrderDate") == good))).And.Not.Empty);
+            //空の行は not in でも unknown (合わない)
+            Assert.That(notInIds, Is.EqualTo(RecordIds(Orders.Where(e => e.Date("OrderDate") is { } d && d != good))));
+        }
+
+        [Test]
+        public async Task orの中のどの行とも等しくならない値()
+        {
+            var bad = new DateTime(2026, 4, 22, 15, 30, 0);
+            //受注日が空の受注 (受注 9) の進捗を仮でないものにする (not の中で受注日が unknown になる行)
+            _h.Mock.UpdateRecord(MockHarness.OrderApp, Orders.Single(e => e.Text("OrderDate") == null).RecordId(), new Dictionary<string, object?> { ["Stage"] = "受注" });
+
+            var or = await RecordIdsBySqlAsync("\"Order\"", "\"Order\".\"OrderDate\" = @p0 or \"Order\".\"Stage\" = @p1", ("@p0", bad), ("@p1", "仮"));
+            var notOr = await RecordIdsBySqlAsync("\"Order\"", "not (\"Order\".\"OrderDate\" = @p0 or \"Order\".\"Stage\" = @p1)", ("@p0", bad), ("@p1", "仮"));
+            var orNotEqual = await RecordIdsBySqlAsync("\"Order\"", "\"Order\".\"OrderDate\" <> @p0 or \"Order\".\"Stage\" = @p1", ("@p0", bad), ("@p1", "仮"));
+
+            Assert.That(or, Is.EqualTo(RecordIds(Orders.Where(e => e.Text("Stage") == "仮"))));
+            //not (unknown か偽 or ...) は、日付が空でなく (偽) 進捗が空でなく仮でない行
+            Assert.That(notOr, Is.EqualTo(RecordIds(Orders.Where(e => e.Text("OrderDate") != null && e.Text("Stage") is { } s && s != "仮"))));
+            Assert.That(notOr, Does.Not.Contain(Orders.Single(e => e.Text("OrderDate") == null).RecordId()));
+            Assert.That(orNotEqual, Is.EqualTo(RecordIds(Orders.Where(e => e.Text("OrderDate") != null || e.Text("Stage") == "仮"))));
+        }
+
+        [TestCase("Since", "日付")]
+        [TestCase("CreditLimit", "数値")]
+        public async Task 結合先の列のどの行とも等しくならない値(string column, string kind)
+        {
+            object bad = kind == "日付" ? new DateTime(2019, 4, 1, 15, 30, 0) : "abc";
+            //受注の 1 件を、取引開始日・与信限度額が空の顧客 (C-003) に向ける
+            _h.Mock.UpdateRecord(MockHarness.OrderApp, Orders.First(e => e.Text("CustomerCode") == "C-001").RecordId(), new Dictionary<string, object?> { ["CustomerCode"] = "C-003" });
+            const string from = "\"Order\" left join \"Customer\" as \"Customer_1\" on \"Order\".\"CustomerCode\"=\"Customer_1\".\"CustomerCode\"";
+            var c = $"\"Customer_1\".\"{column}\"";
+            var customers = Customers.ToDictionary(e => e.Text("CustomerCode")!);
+            //結合先の行があり、その列が空でない受注 (顧客の無い受注・顧客の列が空の受注は unknown)
+            var expected = RecordIds(Orders.Where(e => e.Text("CustomerCode") is { } code && customers.TryGetValue(code, out var customer) && customer.Text(column) != null));
+            Assert.That(expected, Is.Not.Empty.And.Count.LessThan(Orders.Count(e => e.Text("CustomerCode") != null)), "結合先の列が空の受注もある");
+
+            Assert.That(await RecordIdsBySqlAsync(from, $"not ({c} = @p0)", ("@p0", bad)), Is.EqualTo(expected), "not (列 = 値)");
+            Assert.That(await RecordIdsBySqlAsync(from, $"{c} not in (@p0)", ("@p0", bad)), Is.EqualTo(expected), "列 Not In (値)");
+            Assert.That(await RecordIdsBySqlAsync(from, $"{c} <> @p0", ("@p0", bad)), Is.EqualTo(expected), "列 <> 値");
+            Assert.That(await RecordIdsBySqlAsync(from, $"not ({c} <> @p0)", ("@p0", bad)), Is.Empty, "not (列 <> 値)");
+            Assert.That(await RecordIdsBySqlAsync(from, $"{c} = @p0", ("@p0", bad)), Is.Empty, "列 = 値");
+        }
+
         // ---------------------------------------------------------------- 乱数の条件と SQL の 3 値の論理の突き合わせ
 
         sealed record Case(MatchConditionBase Condition, Func<JsonObject, bool?> Evaluate, string Text);

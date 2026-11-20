@@ -847,6 +847,10 @@ namespace Kintone.Mock
                     return (AddRecordApi(ReadParameters(request, recorded), space, caller), true);
                 case ("record.json", "PUT"):
                     return (UpdateRecordApi(ReadParameters(request, recorded), space, caller), true);
+                case ("file.json", "POST"):
+                    return (UploadFileApi(request, recorded), false);
+                case ("file.json", "GET"):
+                    return (DownloadFileApi(request, caller), false);
                 default:
                     throw NotFoundApi(recorded);
             }

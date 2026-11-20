@@ -300,6 +300,53 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Server
             }
         }
 
+        // ---------------------------------------------------------------- 添付ファイル
+
+        /// <summary>
+        /// ファイルを kintone の一時保管領域にアップロードする (POST file.json・multipart の file)。戻り値はアップロードの fileKey (レコードの値に入れて添付する)。
+        /// 添付されなかったファイルは kintone が 3 日で消すので、通信の失敗はやり直す (同じファイルが一時保管領域に 2 つ残っても害は無い)。
+        /// </summary>
+        internal async Task<string> UploadFileAsync(string name, string contentType, byte[] content)
+        {
+            using var response = await SendAsync(() =>
+            {
+                var file = new ByteArrayContent(content);
+                file.Headers.ContentType = MediaTypeHeaderValue.TryParse(contentType, out var type) ? type : new MediaTypeHeaderValue(KintoneAttachments.DefaultContentType);
+                //ファイル名は UTF-8 のまま filename="..." に書く (kintone の資料: 日本語のファイル名は UTF-8 で送る)
+                file.Headers.TryAddWithoutValidation("Content-Disposition", $"form-data; name=\"file\"; filename=\"{EscapeQuoted(name)}\"");
+                //MultipartFormDataContent はファイル名を =?utf-8?...?= の形に変えることがあるので、multipart/form-data の MultipartContent で組む
+                var form = new MultipartContent("form-data") { HeaderEncodingSelector = (_, _) => Encoding.UTF8 };
+                form.Add(file);
+                return new HttpRequestMessage(HttpMethod.Post, Settings.ApiUrl + "/file.json") { Content = form };
+            }, true);
+            using var json = ParseJson(await response.Content.ReadAsStringAsync(), response.StatusCode);
+            if (json.RootElement.ValueKind == JsonValueKind.Object && json.RootElement.TryGetProperty("fileKey", out var key) && key.ValueKind == JsonValueKind.String &&
+                KintoneAttachments.IsFileKey(key.GetString()))
+                return key.GetString()!;
+            throw new KintoneException("kintone: the response of the file upload has no 'fileKey'.", KintoneErrorKind.Unknown, response.StatusCode, string.Empty);
+        }
+
+        //"..." の中に書く文字 (" と \ を \ で、改行などの制御文字は _ にする)
+        static string EscapeQuoted(string text)
+            => string.Concat(text.Select(c => c switch
+            {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                _ when char.IsControl(c) => "_",
+                _ => c.ToString(),
+            }));
+
+        /// <summary>
+        /// 添付ファイルの中身を読む (GET file.json?fileKey=)。fileKey はレコードの値で kintone が返したもの (クライアントの文字をそのまま渡さない)。
+        /// 呼ぶ前にレコードとフィールドの添付であることを確かめておく (<see cref="KintoneDbAccessor.GetAttachmentAsync"/>)。
+        /// </summary>
+        internal async Task<byte[]> DownloadFileAsync(string fileKey)
+        {
+            if (!KintoneAttachments.IsFileKey(fileKey)) throw new KintoneException("The fileKey of the attachment is invalid.", KintoneErrorKind.InvalidRequest);
+            using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, Settings.ApiUrl + "/file.json?fileKey=" + Uri.EscapeDataString(fileKey)), true);
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+
         //対象のレコードが無い (GAIA_RE01)・版が違う (GAIA_CO02)。アプリが無い・権限が無いなどの 404 / 409 は含めない
         static bool IsMissingOrConflict(KintoneException e) => e.ErrorCode is "GAIA_RE01" or "GAIA_CO02";
 

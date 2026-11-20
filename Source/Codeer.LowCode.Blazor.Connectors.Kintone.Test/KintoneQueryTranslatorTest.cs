@@ -1,5 +1,6 @@
 using Codeer.LowCode.Blazor.Connectors.Kintone.Server;
 using Codeer.LowCode.Blazor.Connectors.Kintone.Test.Harness;
+using System.Globalization;
 using System.Text.Json;
 
 namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
@@ -139,10 +140,147 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         {
             Assert.That(await FilterAsync("StartDate", ">=", new DateOnly(2026, 4, 1)), Is.EqualTo("(StartDate >= \"2026-04-01\" and StartDate != \"\")"));
             Assert.That(await FilterAsync("StartDate", "<>", new DateOnly(2026, 4, 1)), Is.EqualTo("(StartDate != \"2026-04-01\" and StartDate != \"\")"));
-            Assert.That(await FilterAsync("OpenTime", "<", new TimeOnly(9, 5, 30)), Is.EqualTo("(OpenTime < \"09:05\" and OpenTime != \"\")"));
+            Assert.That(await FilterAsync("OpenTime", "<", new TimeOnly(9, 5)), Is.EqualTo("(OpenTime < \"09:05\" and OpenTime != \"\")"));
             Assert.That(await FilterAsync("LastContact", "=", new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Unspecified)), Is.EqualTo("LastContact = \"2026-04-01T09:00:00Z\""));
             Assert.That(await FilterAsync("LastContact", ">", new DateTimeOffset(2026, 4, 1, 9, 0, 0, TimeSpan.FromHours(9))), Is.EqualTo("(LastContact > \"2026-04-01T00:00:00Z\" and LastContact != \"\")"));
             Assert.That(await FilterAsync("Created", "<", new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc)), Is.EqualTo("Created < \"2026-04-01T00:00:00Z\""));
+            //0:00 の日時は日付と同じ
+            Assert.That(await FilterAsync("StartDate", "=", new DateTime(2026, 4, 1)), Is.EqualTo("StartDate = \"2026-04-01\""));
+        }
+
+        //日付の列に時刻の入った日時・時刻の列に秒のある時刻: PostgreSQL と同じく、列の値をその日の 0:00・その分の 0 秒として比べる
+        [TestCase("StartDate", "=", null)]
+        [TestCase("StartDate", "<>", "StartDate != \"\"")]
+        [TestCase("StartDate", "<", "(StartDate <= \"2026-04-01\" and StartDate != \"\")")]
+        [TestCase("StartDate", "<=", "(StartDate <= \"2026-04-01\" and StartDate != \"\")")]
+        [TestCase("StartDate", ">", "(StartDate > \"2026-04-01\" and StartDate != \"\")")]
+        [TestCase("StartDate", ">=", "(StartDate > \"2026-04-01\" and StartDate != \"\")")]
+        public async Task 日付の列に時刻の入った値の比較(string column, string op, string? expected)
+        {
+            var read = await TranslateAsync(SelectCustomer + $"where \"Customer\".\"{column}\" {op} @p0", ("@p0", new DateTime(2026, 4, 1, 15, 30, 0)));
+            if (expected == null) Assert.That(read.IsEmpty, Is.True);
+            else Assert.That(read.Filter, Is.EqualTo(expected));
+        }
+
+        [TestCase("=", null)]
+        [TestCase("<>", "OpenTime != \"\"")]
+        [TestCase("<", "(OpenTime <= \"09:05\" and OpenTime != \"\")")]
+        [TestCase("<=", "(OpenTime <= \"09:05\" and OpenTime != \"\")")]
+        [TestCase(">", "(OpenTime > \"09:05\" and OpenTime != \"\")")]
+        [TestCase(">=", "(OpenTime > \"09:05\" and OpenTime != \"\")")]
+        public async Task 時刻の列に秒のある値の比較(string op, string? expected)
+        {
+            var read = await TranslateAsync(SelectCustomer + $"where \"Customer\".\"OpenTime\" {op} @p0", ("@p0", new TimeOnly(9, 5, 30)));
+            if (expected == null) Assert.That(read.IsEmpty, Is.True);
+            else Assert.That(read.Filter, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public async Task 日付の列に時刻の入った値の否定はSQLと同じ意味()
+        {
+            //not (d >= 15:30) = d < 15:30 = d <= その日
+            Assert.That(await FilterAsync("not (\"Customer\".\"StartDate\" >= @p0)", ("@p0", new DateTime(2026, 4, 1, 15, 30, 0))),
+                Is.EqualTo("(StartDate <= \"2026-04-01\" and StartDate != \"\")"));
+        }
+
+        //ユーザー・組織の列に kintone の関数の形の文字を当てても、関数として送らない (その文字のユーザーとして合う行なし)
+        [TestCase("Owner", "=", "LOGINUSER()")]
+        [TestCase("Creator", "=", "loginuser( )")]
+        [TestCase("Owner", "=", "PRIMARY_ORGANIZATION()")]
+        public async Task ユーザーの列にkintoneの関数の形の値を当てると合う行なし(string column, string op, string value)
+        {
+            var read = await TranslateAsync(SelectCustomer + $"where \"Customer\".\"{column}\" {op} @p0", ("@p0", value));
+            Assert.That(read.IsEmpty, Is.True);
+        }
+
+        [Test]
+        public async Task ユーザーの列にkintoneの関数の形の値の等しくないは空でない行()
+        {
+            Assert.That(await FilterAsync("Owner", "<>", "LOGINUSER()"), Is.EqualTo("Owner not in (\"\")"));
+            //ユーザーの列でなければ文字のまま
+            Assert.That(await FilterAsync("Name", "=", "LOGINUSER()"), Is.EqualTo("Name = \"LOGINUSER()\""));
+        }
+
+        // ---------------------------------------------------------------- どの行とも等しくならない値 (PostgreSQL の 3 値の論理)
+
+        //どの行とも等しくならない値 (日付の列に時刻の入った値・ユーザーの列に kintone の関数の形の文字・数値の列に数値でない文字) を 2 つずつ
+        static (object First, object Second) NeverEqualValues(string column) => column switch
+        {
+            "StartDate" => (new DateTime(2026, 4, 1, 15, 30, 0), new DateTime(2026, 5, 2, 1, 0, 0)),
+            "Owner" => ("LOGINUSER()", "PRIMARY_ORGANIZATION()"),
+            "CreditLimit" => ("abc", "1x"),
+            _ => throw new ArgumentException(column),
+        };
+
+        //= は真になる行が無く、空の行では unknown (not を付けても空の行は合わない)。<> はその not
+        [TestCase("StartDate", "StartDate != \"\"")]
+        [TestCase("Owner", "Owner not in (\"\")")]
+        [TestCase("CreditLimit", "CreditLimit != \"\"")]
+        public async Task どの行とも等しくならない値との比較は空の行をSQLと同じく扱う(string column, string notEmpty)
+        {
+            var (first, second) = NeverEqualValues(column);
+            async Task<KintoneRead> Read(string where) => await TranslateAsync(SelectCustomer + "where " + where.Replace("C", $"\"Customer\".\"{column}\""), ("@p0", first), ("@p1", second));
+
+            //not (列 = 値) → 空でない行
+            Assert.That((await Read("not (C = @p0)")).Filter, Is.EqualTo(notEmpty));
+            //列 not in (合わない値, 合わない値) → 空でない行 (値ごとに「空でない」)
+            Assert.That((await Read("C not in (@p0, @p1)")).Filter, Is.EqualTo(notEmpty + " and " + notEmpty));
+            //列 <> 値 → 空でない行
+            Assert.That((await Read("C <> @p0")).Filter, Is.EqualTo(notEmpty));
+            //not (列 <> 値) → 0 行
+            Assert.That((await Read("not (C <> @p0)")).IsEmpty, Is.True);
+            //列 = 値 → 0 行
+            Assert.That((await Read("C = @p0")).IsEmpty, Is.True);
+            //列 in (合わない値, 合わない値) → 0 行
+            Assert.That((await Read("C in (@p0, @p1)")).IsEmpty, Is.True);
+        }
+
+        [Test]
+        public async Task 空になりえない列ではどの行とも等しくならない値の否定は全部の行()
+        {
+            foreach (var where in new[] { "not (\"Customer\".\"Creator\" = @p0)", "\"Customer\".\"Creator\" <> @p0", "\"Customer\".\"Creator\" not in (@p0)" })
+            {
+                var read = await TranslateAsync(SelectCustomer + "where " + where, ("@p0", "LOGINUSER()"));
+                Assert.That((read.IsEmpty, read.Where, read.Filter), Is.EqualTo((false, (FilterNode?)null, (string?)null)), where);
+            }
+            Assert.That((await TranslateAsync(SelectCustomer + "where not (\"Customer\".\"Creator\" <> @p0)", ("@p0", "LOGINUSER()"))).IsEmpty, Is.True);
+        }
+
+        [Test]
+        public async Task Inの一部だけが合わない値()
+        {
+            var bad = new DateTime(2026, 4, 1, 15, 30, 0);
+            Assert.That(await FilterAsync("\"Customer\".\"StartDate\" in (@p0, @p1)", ("@p0", bad), ("@p1", new DateOnly(2026, 4, 2))),
+                Is.EqualTo("StartDate = \"2026-04-02\""));
+            //合わない値の分は「空でない」、合う値の分は「等しくない」
+            Assert.That(await FilterAsync("\"Customer\".\"StartDate\" not in (@p0, @p1)", ("@p0", bad), ("@p1", new DateOnly(2026, 4, 2))),
+                Is.EqualTo("StartDate != \"\" and (StartDate != \"2026-04-02\" and StartDate != \"\")"));
+            Assert.That(await FilterAsync("\"Customer\".\"Owner\" not in (@p0, @p1)", ("@p0", "LOGINUSER()"), ("@p1", "sato")),
+                Is.EqualTo("Owner not in (\"\") and Owner not in (\"sato\", \"\")"));
+        }
+
+        [Test]
+        public async Task orの中のどの行とも等しくならない値()
+        {
+            var bad = new DateTime(2026, 4, 1, 15, 30, 0);
+            Assert.That(await FilterAsync("\"Customer\".\"StartDate\" = @p0 or \"Customer\".\"Name\" = @p1", ("@p0", bad), ("@p1", "A")), Is.EqualTo("Name = \"A\""));
+            Assert.That(await FilterAsync("not (\"Customer\".\"StartDate\" = @p0 or \"Customer\".\"Name\" = @p1)", ("@p0", bad), ("@p1", "A")),
+                Is.EqualTo("StartDate != \"\" and (Name != \"A\" and Name != \"\")"));
+            Assert.That(await FilterAsync("\"Customer\".\"CreditLimit\" <> @p0 or \"Customer\".\"Name\" = @p1", ("@p0", "abc"), ("@p1", "A")),
+                Is.EqualTo("CreditLimit != \"\" or Name = \"A\""));
+        }
+
+        [Test]
+        public async Task 結合先の列のどの行とも等しくならない値は結合先の空でない行を集める()
+        {
+            var read = await TranslateAsync(SelectWithRegion + """where not ("Region_1"."CountryId" = @p0)""", ("@p0", "abc"));
+            //偽になる結合先の行 = CountryId が空でない地域。その Code に一致する顧客
+            var keys = (InSetNode)read.Where!;
+            Assert.That((keys.Column, keys.Source.Table, keys.Source.Column), Is.EqualTo(("RegionCode", "Region", "Code")));
+            Assert.That(KintoneQueryTranslator.Render(KintoneQueryTranslator.Fold(keys.Source.Filter), true), Is.EqualTo("CountryId != \"\" and CountryId != \"\""));
+            //= は真になる結合先の行が無い (集めると 0 件)
+            var equal = await TranslateAsync(SelectWithRegion + """where "Region_1"."CountryId" = @p0""", ("@p0", "abc"));
+            Assert.That(KintoneQueryTranslator.Fold(((InSetNode)equal.Where!).Source.Filter), Is.EqualTo(new ConstNode(false)));
         }
 
         [TestCase("Note", "=")]
@@ -385,7 +523,9 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         [Test]
         public async Task 日付の列の値()
         {
-            Assert.That(await FilterAsync("StartDate", "=", new DateTime(2026, 4, 1, 23, 0, 0)), Is.EqualTo("StartDate = \"2026-04-01\""));
+            Assert.That(await FilterAsync("StartDate", "=", new DateTime(2026, 4, 1, 0, 0, 0)), Is.EqualTo("StartDate = \"2026-04-01\""));
+            //時刻の入った日時はその日の 0:00 と等しくない (PostgreSQL の date と timestamp の比較と同じ)
+            Assert.That((await TranslateAsync(SelectCustomer + """where "Customer"."StartDate" = @p0""", ("@p0", new DateTime(2026, 4, 1, 23, 0, 0)))).IsEmpty, Is.True);
             Assert.That(await FilterAsync("StartDate", "=", "2026-04-01"), Is.EqualTo("StartDate = \"2026-04-01\""));
             //書式の合わない文字は一致する行が無い
             Assert.That((await TranslateAsync(SelectCustomer + """where "Customer"."StartDate" = @p0""", ("@p0", "2026/04/01"))).IsEmpty, Is.True);
@@ -483,6 +623,30 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
             Assert.That(e.Kind, Is.EqualTo(KintoneErrorKind.NotSupported));
         }
 
+        //添付 (FILE)・テーブル (SUBTABLE) の列は並び・集計に使えない (値は JSON の文字。kintone 任せにもメモリでの比較にもしない)
+        [TestCase("""select "Customer"."$id" as "i" from "Customer" order by "Customer"."Attachments" """, "Attachments")]
+        [TestCase("""select "Order"."$id" as "i" from "Order" order by "Order"."Lines" desc""", "Lines")]
+        [TestCase("""select "Order"."$id" as "i" from "Order" left join "Customer" as "c" on "Order"."CustomerCode"="c"."Code" order by "c"."Attachments" """, "Attachments")]
+        public void 添付とテーブルの列の並びはNotSupported(string sql, string column)
+        {
+            var e = Assert.ThrowsAsync<KintoneException>(() => TranslateAsync(sql))!;
+            Assert.That(e.Kind, Is.EqualTo(KintoneErrorKind.NotSupported));
+            Assert.That(e.Message, Does.Contain($"'{column}'"));
+        }
+
+        [TestCase("""select "Customer"."Attachments" as "g0", count(*) as "n" from "Customer" group by "Customer"."Attachments" """, "Attachments")]
+        [TestCase("""select "Order"."Lines" as "g0", count(*) as "n" from "Order" group by "Order"."Lines" """, "Lines")]
+        [TestCase("""select count(distinct "Customer"."Attachments") as "m0", count(*) as "n" from "Customer" """, "Attachments")]
+        [TestCase("""select min("Customer"."Attachments") as "m0", count(*) as "n" from "Customer" """, "Attachments")]
+        [TestCase("""select max("Order"."Lines") as "m0", count(*) as "n" from "Order" """, "Lines")]
+        [TestCase("""select "c"."Attachments" as "g0", count(*) as "n" from "Order" left join "Customer" as "c" on "Order"."CustomerCode"="c"."Code" group by "c"."Attachments" """, "Attachments")]
+        public void 添付とテーブルの列の集計はNotSupported(string sql, string column)
+        {
+            var e = Assert.ThrowsAsync<KintoneException>(() => KintoneQueryTranslator.TranslateAggregateAsync(sql, new Dictionary<string, object?>(), GetDefinition))!;
+            Assert.That(e.Kind, Is.EqualTo(KintoneErrorKind.NotSupported));
+            Assert.That(e.Message, Does.Contain($"'{column}'"));
+        }
+
         [Test]
         public void 定義に無い列とパラメータの無い値はエラー()
         {
@@ -492,6 +656,43 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
             Assert.ThrowsAsync<KintoneException>(() => TranslateAsync("""select "Customer"."Spacer" as "s" from "Customer" """));
             var noArg = Assert.ThrowsAsync<KintoneException>(() => TranslateAsync(SelectCustomer + """where "Customer"."Name" = @p9"""))!;
             Assert.That(noArg.Message, Does.Contain("@p9"));
+        }
+
+        // ---------------------------------------------------------------- 日付の軸の丸め (PostgreSQL の date_trunc と同じ値)
+
+        [TestCase("2026-03-31", "year", 0, 3, "2025-04-01")]
+        [TestCase("2026-03-31", "quarter", 0, 3, "2026-01-01")]
+        [TestCase("2026-04-01", "year", 0, 3, "2026-04-01")]
+        [TestCase("2026-12-31", "year", 0, 0, "2026-01-01")]
+        [TestCase("2026-03-31", "month", 0, 0, "2026-03-01")]
+        [TestCase("2026-11-22", "week", 0, 0, "2026-11-16")]
+        [TestCase("2026-11-16", "week", 0, 0, "2026-11-16")]
+        [TestCase("2026-03-31", "day", 0, 0, "2026-03-31")]
+        //時差 (UTC-5) を足すと前の日・前の年度
+        [TestCase("2026-04-01T02:00:00Z", "day", -300, 0, "2026-03-31")]
+        [TestCase("2026-04-01T02:45:00Z", "hour", -300, 0, "2026-03-31T21:00:00")]
+        [TestCase("2026-04-01T02:00:00Z", "quarter", -300, 3, "2026-01-01")]
+        [TestCase("2026-04-01T02:00:00Z", "year", -300, 3, "2025-04-01")]
+        [TestCase("2026-12-31T23:30:00Z", "year", 60, 0, "2027-01-01")]
+        //月末の日 (年度の月を引くと日が無い月は月末)
+        [TestCase("2026-05-31", "quarter", 0, 3, "2026-04-01")]
+        [TestCase("2026-08-31", "quarter", 0, 6, "2026-07-01")]
+        [TestCase("2026-03-31", "year", 0, 1, "2026-02-01")]
+        public void 日付の軸の丸めの固定値(string value, string unit, int shiftMinutes, int fiscalMonths, string expected)
+        {
+            object input = value.Contains('T')
+                ? DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal)
+                : DateOnly.Parse(value, CultureInfo.InvariantCulture);
+            Assert.That(KintoneQueryExecutor.Truncate(input, new DateBucketSpec(unit, shiftMinutes, fiscalMonths)),
+                Is.EqualTo(DateTime.Parse(expected, CultureInfo.InvariantCulture)));
+        }
+
+        [Test]
+        public void 日付の軸の丸めの空と日付でない値()
+        {
+            Assert.That(KintoneQueryExecutor.Truncate(null, new DateBucketSpec("month", 0, 0)), Is.Null);
+            Assert.That(Assert.Throws<KintoneException>(() => KintoneQueryExecutor.Truncate("2026-01-01", new DateBucketSpec("month", 0, 0)))!.Kind,
+                Is.EqualTo(KintoneErrorKind.NotSupported));
         }
 
         // ---------------------------------------------------------------- 書き込みの SQL

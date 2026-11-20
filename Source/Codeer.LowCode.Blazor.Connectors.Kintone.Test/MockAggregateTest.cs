@@ -248,19 +248,126 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
             Assert.That(result.Rows, Is.Empty);
         }
 
-        [TestCase(DateBucket.Month)]
-        [TestCase(DateBucket.Year)]
-        [TestCase(DateBucket.Day)]
-        public void 日付の期間での集計は要求を送る前に拒否する(DateBucket bucket)
+        // ---------------------------------------------------------------- 日付の軸 (本体の DateGroup。PostgreSQL の丸めの式をメモリで同じ意味に計算する)
+
+        static DateOnly? OrderDate(JsonObject order) => order.Text("OrderDate") is { Length: > 0 } text ? DateOnly.Parse(text, System.Globalization.CultureInfo.InvariantCulture) : null;
+
+        static DateTime? DeliveryAt(JsonObject order) => order.Text("DeliveryAt") is { Length: > 0 } text
+            ? DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture).UtcDateTime : null;
+
+        async Task<Dictionary<string, (decimal? Count, decimal? Sum)>> DateAggregateAsync(string variable, DateBucket bucket, int fiscalYearStartMonth = 1, int? utcOffsetMinutes = null)
         {
-            var condition = new AggregateCondition("Order");
-            condition.Groups.Add(new DateGroup { Variable = "OrderDate.Value", Bucket = bucket });
+            var condition = new AggregateCondition("Order") { UtcOffsetMinutes = utcOffsetMinutes };
+            condition.Groups.Add(new DateGroup { Variable = variable, Bucket = bucket, FiscalYearStartMonth = fiscalYearStartMonth });
+            condition.Measures.Add(new AggregateMeasure { Function = AggregateFunction.Count });
             condition.Measures.Add(new AggregateMeasure { Function = AggregateFunction.Sum, Variable = "Total.Value" });
+            var result = await AggregateAsync(condition);
+            return result.Rows.ToDictionary(e => KeyText(e.Key(0)), e => (e.Number(0), e.Number(1)));
+        }
 
-            var ex = Assert.ThrowsAsync<KintoneException>(() => AggregateAsync(condition));
+        Dictionary<string, (decimal? Count, decimal? Sum)> Expected<T>(Func<JsonObject, T?> key) where T : struct
+            => Orders.GroupBy(e => key(e)).ToDictionary(g => KeyText(g.Key), g => ((decimal?)g.Count(), Sum(g.Select(e => e.Number("Total")))));
 
-            Assert.That(ex!.Kind, Is.EqualTo(KintoneErrorKind.NotSupported));
-            Assert.That(ex.Message, Does.Contain("DATE_FORMAT"));
+        [Test]
+        public async Task 日付の軸の月と週と日()
+        {
+            Assert.That(await DateAggregateAsync("OrderDate.Value", DateBucket.Month),
+                Is.EqualTo(Expected(e => OrderDate(e) is { } d ? new DateOnly(d.Year, d.Month, 1) : (DateOnly?)null)));
+            //週は月曜始まり
+            Assert.That(await DateAggregateAsync("OrderDate.Value", DateBucket.Week),
+                Is.EqualTo(Expected(e => OrderDate(e) is { } d ? d.AddDays(-(((int)d.DayOfWeek + 6) % 7)) : (DateOnly?)null)));
+            Assert.That(await DateAggregateAsync("OrderDate.Value", DateBucket.Day), Is.EqualTo(Expected(OrderDate)));
+            //空の日付は 1 つのグループ
+            Assert.That((await DateAggregateAsync("OrderDate.Value", DateBucket.Month))[KeyText(null)].Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task 日付の軸の四半期と年は年度の開始月で切る()
+        {
+            //年度は 4 月始まり: 2026-01〜03 は 2025-10 の四半期・2025 年度
+            static DateOnly Quarter(DateOnly d)
+            {
+                var s = d.AddMonths(-3);
+                return new DateOnly(s.Year, (s.Month - 1) / 3 * 3 + 1, 1).AddMonths(3);
+            }
+            Assert.That(await DateAggregateAsync("OrderDate.Value", DateBucket.Quarter, 4),
+                Is.EqualTo(Expected(e => OrderDate(e) is { } d ? Quarter(d) : (DateOnly?)null)));
+            Assert.That(await DateAggregateAsync("OrderDate.Value", DateBucket.Year, 4),
+                Is.EqualTo(Expected(e => OrderDate(e) is { } d ? new DateOnly(d.AddMonths(-3).Year, 4, 1) : (DateOnly?)null)));
+            Assert.That((await DateAggregateAsync("OrderDate.Value", DateBucket.Year, 4)).Keys, Does.Contain(KeyText(new DateOnly(2025, 4, 1))));
+        }
+
+        [Test]
+        public async Task UTCの日時の軸は時差を足してから丸める()
+        {
+            //UTC-1 では 00:30Z の納品は前の日
+            Assert.That(await DateAggregateAsync("DeliveryAt.Value", DateBucket.Day, utcOffsetMinutes: -60),
+                Is.EqualTo(Expected(e => DeliveryAt(e) is { } t ? DateOnly.FromDateTime(t.AddMinutes(-60)) : (DateOnly?)null)));
+            Assert.That(Orders.Any(e => DeliveryAt(e) is { Hour: 0 }), Is.True);
+            //時は日時 (時差を足した壁時計の時刻)
+            Assert.That(await DateAggregateAsync("DeliveryAt.Value", DateBucket.Hour, utcOffsetMinutes: 540),
+                Is.EqualTo(Expected(e => DeliveryAt(e) is { } t ? new DateTime(t.Year, t.Month, t.Day, t.Hour, 0, 0).AddHours(9) : (DateTime?)null)));
+        }
+
+        [TestCase(DateBucket.Quarter)]
+        [TestCase(DateBucket.Year)]
+        public async Task UTCの日時の四半期と年は時差を足してから年度の開始月で切る(DateBucket bucket)
+        {
+            //UTC-5 では 2026-04-01 02:00Z は 2026-03-31 (2025 年度の 1〜3 月の四半期)。時差を足さずに切ると 2026 年度になる
+            _h.Mock.AddRecord(MockHarness.OrderApp, new Dictionary<string, object?> { ["OrderNo"] = "SO-2026-0099", ["DeliveryAt"] = "2026-04-01T02:00:00Z" });
+            _h.Mock.AddRecord(MockHarness.OrderApp, new Dictionary<string, object?> { ["OrderNo"] = "SO-2026-0100", ["DeliveryAt"] = "2026-07-01T05:00:00Z" });
+
+            var actual = await DateAggregateAsync("DeliveryAt.Value", bucket, 4, -300);
+
+            static DateTime Start(DateTime utc, DateBucket bucket)
+            {
+                var s = utc.AddMinutes(-300).AddMonths(-3);
+                return (bucket == DateBucket.Quarter ? new DateTime(s.Year, (s.Month - 1) / 3 * 3 + 1, 1) : new DateTime(s.Year, 1, 1)).AddMonths(3);
+            }
+            //本体は四半期・年を日付にする
+            Assert.That(actual, Is.EqualTo(Expected(e => DeliveryAt(e) is { } t ? DateOnly.FromDateTime(Start(t, bucket)) : (DateOnly?)null)));
+            var expectedKey = bucket == DateBucket.Quarter ? new DateOnly(2026, 1, 1) : new DateOnly(2025, 4, 1);
+            Assert.That(actual.Keys, Does.Contain(KeyText(expectedKey)));
+            if (bucket == DateBucket.Quarter) Assert.That(actual.Keys, Does.Contain(KeyText(new DateOnly(2026, 7, 1))));
+
+            //本体が書く PostgreSQL の丸めの式 (時差を足し、年度の月を引いて切り、足し戻す)
+            var unit = bucket == DateBucket.Quarter ? "quarter" : "year";
+            Assert.That(_h.Sql.Sqls.Any(e => e.Replace(" ", "").Contains(
+                $"(date_trunc('{unit}',((\"Order\".\"DeliveryAt\"+interval'-300minutes')-interval'3months'))+interval'3months')", StringComparison.Ordinal)), Is.True,
+                string.Join("\n", _h.Sql.Sqls));
+        }
+
+        [Test]
+        public async Task 日付の軸で上位の月だけを選ぶと選んだ月の分だけ集計する()
+        {
+            var within = new AggregateCondition("Order")
+            {
+                Groups = { new DateGroup { Variable = "OrderDate.Value", Bucket = DateBucket.Month } },
+                Measures = { new AggregateMeasure { Function = AggregateFunction.Sum, Variable = "Total.Value" } },
+                SortConditions = { new AggregateSort { Target = AggregateSortTarget.Measure, Index = 0, IsDescending = true } },
+                LimitCount = 2,
+            };
+            var condition = new AggregateCondition("Order") { WithinGroupsOf = within };
+            condition.Groups.Add(new DateGroup { Variable = "OrderDate.Value", Bucket = DateBucket.Month });
+            condition.Groups.Add(new ValueGroup { Variable = "Customer.Value" });
+            condition.Measures.Add(new AggregateMeasure { Function = AggregateFunction.Count });
+
+            var result = await AggregateAsync(condition);
+
+            static DateOnly? Month(JsonObject e) => OrderDate(e) is { } d ? new DateOnly(d.Year, d.Month, 1) : null;
+            var top = Orders.GroupBy(Month).Select(g => (g.Key, Sum: Sum(g.Select(e => e.Number("Total")))))
+                .OrderBy(e => e.Sum == null ? 0 : 1).ThenByDescending(e => e.Sum).ThenBy(e => e.Key == null ? 1 : 0).ThenBy(e => e.Key).Take(2).Select(e => e.Key).ToHashSet();
+            var expected = Orders.Where(e => top.Contains(Month(e))).GroupBy(e => (Month(e), e.Text("CustomerCode")))
+                .ToDictionary(g => KeyText(g.Key.Item1) + "|" + g.Key.Item2, g => (decimal?)g.Count());
+            Assert.That(result.Rows.ToDictionary(e => KeyText(e.Key(0)) + "|" + (string?)e.Key(1), e => e.Number(0)), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void 日付の軸でないほかの日付の式は拒否する()
+        {
+            var e = Assert.ThrowsAsync<KintoneException>(() => _h.Accessor.QueryAsync(TestConnections.DataSourceName,
+                """select to_char("Order"."OrderDate", 'YYYY-MM') as "g0", count(*) as "m0" from "Order" group by to_char("Order"."OrderDate", 'YYYY-MM')""", new()))!;
+            Assert.That(e.Kind, Is.EqualTo(KintoneErrorKind.NotSupported));
             Assert.That(_h.DataRequests, Is.Empty);
         }
 

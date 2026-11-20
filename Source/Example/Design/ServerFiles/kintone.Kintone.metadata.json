@@ -338,8 +338,7 @@
           "Name": "Attachments",
           "Kind": "Json",
           "FieldType": "FILE",
-          "Label": "添付ファイル",
-          "ReadOnly": true
+          "Label": "添付ファイル"
         },
         {
           "Name": "Lines",

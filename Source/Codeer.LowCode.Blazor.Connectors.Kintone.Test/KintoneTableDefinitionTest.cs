@@ -101,8 +101,8 @@ namespace Codeer.LowCode.Blazor.Connectors.Kintone.Test
         public void 読み取り専用の列()
         {
             var readOnly = Customer.Columns.Where(e => e.IsReadOnly).Select(e => e.Name);
-            //Code は expression が空 (自動計算でない)
-            Assert.That(readOnly, Is.EqualTo(new[] { "$id", "$revision", "Total", "Label", "RecordNo", "Creator", "Created", "Updated", "Status", "Attachments" }));
+            //Code は expression が空 (自動計算でない)。添付ファイル (Attachments) は添付のフィールドで書ける
+            Assert.That(readOnly, Is.EqualTo(new[] { "$id", "$revision", "Total", "Label", "RecordNo", "Creator", "Created", "Updated", "Status" }));
         }
 
         [Test]

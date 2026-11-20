@@ -65,9 +65,10 @@ TestServer で立てると、モックが接続を切ったとき (`DisconnectNe
 | `AddRecord(appId, record, user = null)` | レコードを足す (追加の API と同じ検証・既定値・ルックアップ・計算。権限は見ない)。`record` は `{"コード": {"value": 値}}` か `{"コード": 値}` (データのファイルの `records` と同じ書き方・`$id` などの指定も可)。作成者は `user` (省略すると Administrator)。戻り値はレコード ID。足せなければ `InvalidOperationException` |
 | `UpdateRecord(appId, recordId, record, user = null)` | レコードを書き換える (更新の API と同じ扱い: 送ったフィールドだけ・テーブルは送った行で置き換え・版を 1 上げる。権限と版は見ない)。別の利用者が先に更新した状況を作るのに使う。戻り値は新しい版 |
 | `DeleteRecord(appId, recordId)` | レコードを消す。無ければ false |
+| `Uploads` / `GetFileContent(fileKey)` | 一時保管領域のファイル (アップロードの `fileKey` → `UploadedFile`: `Name`・`ContentType`・`Content`。添付したものは無くなる) / 添付したファイルの中身 (レコードの値の `fileKey`。無ければ null) |
 | `SetFields(appId, fields)` | フォームの定義 (システムでないフィールド) を差し替える。`fields` はデータのファイルの `fields` と同じ形。無くなったコードの値はレコードから消え、増えたフィールドは既存のレコードでは未入力。フォームの版が 1 上がる |
 | `RenameField(appId, oldCode, newCode)` | フィールドコードを変える。値・計算式・ルックアップ (このアプリのコピー先・ほかのアプリからの参照) も付いて行く。フォームの版が 1 上がる |
-| `Requests` / `ClearRequests()` | 受けた要求の記録 (`MockRecordedRequest`: `Method`・`EffectiveMethod` (`X-HTTP-Method-Override` を当てたあと)・`MethodOverride`・`Path`・`PathAndQuery` (受けたまま)・`Api` (`records.json` など)・`GuestSpaceId`・`Query` (デコード済み)・`Body`・`ApiTokens`・`LoginName` (パスワードは記録しない))。認証に失敗した要求・障害を仕込んだ要求も含む |
+| `Requests` / `ClearRequests()` | 受けた要求の記録 (`MockRecordedRequest`: `Method`・`EffectiveMethod` (`X-HTTP-Method-Override` を当てたあと)・`MethodOverride`・`Path`・`PathAndQuery` (受けたまま)・`Api` (`records.json` など)・`GuestSpaceId`・`Query` (デコード済み)・`Body`・`ApiTokens`・`LoginName` (パスワードは記録しない)・`UploadedFileName` (アップロードのファイル名))。認証に失敗した要求・障害を仕込んだ要求も含む |
 | `FailNext(status, body = null, when = null, count = 1)` | 次の count 回の要求 (`when` を指定すれば、それに合う要求だけ) に、何も実行せずに status を返す。`body` を省略すると kintone の形のエラー (`code` は `MOCK_FAULT`) |
 | `DisconnectNext(when = null, count = 1)` | 次の count 回の要求で、何も実行せずに接続を切る |
 | `DelayNext(delay, when = null, count = 1)` | 次の count 回の要求を delay だけ待ってから処理する (タイムアウトを試す) |
@@ -92,6 +93,8 @@ TestServer で立てると、モックが接続を切ったとき (`DisconnectNe
 | `POST record.json` 本文 `{"app":1,"record":{...}}` | `{"id":"12","revision":"1"}` |
 | `PUT record.json` 本文 `{"app":1,"id":"12","revision":"3","record":{...}}` か `{"app":1,"updateKey":{"field":"Code","value":"C-1"},...}` | `{"revision":"4"}`。`revision` を省略するか `-1` なら版を見ない |
 | `DELETE records.json?app=1&ids[0]=12&revisions[0]=3` (本文 `{"app":1,"ids":["12"],"revisions":["3"]}` も可) | `{}`。1 件でも無い・版が違えば、どれも消さない。100 件まで |
+| `POST file.json` (multipart/form-data の `file`) | `{"fileKey":"..."}`。一時保管領域に置く (下の「実物と違う点」の添付ファイル) |
+| `GET file.json?fileKey=..` | ファイルの中身 (`Content-Type` はファイルの種類)。レコードの値の `fileKey` だけ |
 
 - `app`・`id`・`revision` は数値でも文字でも受けます。本文のある要求は `Content-Type: application/json` が要ります (無ければ 400)
 - クエリ文字列の配列は `fields[0]`・`ids[0]` のように添字を付けます (添字は 0〜99)
@@ -283,11 +286,14 @@ API トークン (アプリごとに 2 つ):
 
 - **`like`**: モックは部分一致 (英字の大文字・小文字を区別しない) です。実物は単語検索に近く、語の途中から始まる文字・記号・1 文字の検索などで結果が違うことがあります。ヒット件数の打ち切り (10 万件) の警告もありません
 - **文字の比較と並び**: モックは文字コード順です。実物の照合・並び順 (大文字・小文字・全角半角・かな・ドロップダウンの並び) とは違うことがあります
-- **応える API**: コネクターが送る 6 種類だけです。単件取得・カーソル・一括・ファイルのアップロード / ダウンロード・ステータスの更新・プレビューの設定などは 404 です
+- **応える API**: コネクターが送る 8 種類だけです。単件取得・カーソル・一括・ステータスの更新・プレビューの設定などは 404 です
 - **フィールドの種類**: 組織選択・グループ選択・関連レコード一覧・ラベル・スペース・罫線・グループはありません。テーブルの中のルックアップもありません
 - **計算式**: 四則・`&`・`SUM` だけです (`ROUND`・`IF`・日時の計算・表示形式 (`format`) の `NUMBER` 以外・桁数 (`displayScale`) の丸めはありません)。未入力を 0 として計算し、0 で割ると未入力にします
 - **フィールドの検証**: 文字数・値の範囲・リンクの形式 (URL・メール)・数値の桁数の制限はありません。数値は `-12.5` の形だけを受けます
-- **添付ファイル**: アップロードが無いので、今の添付の `fileKey` を残すことしかできません
+- **添付ファイル**: アップロード (`POST file.json`) は一時保管領域に置いて `fileKey` を返し、その `fileKey` をレコードに書くと添付されます (レコードの値では別の `fileKey` = `mock-file-N` になり、アップロードの `fileKey` は 1 回しか使えません)。
+  ダウンロード (`GET file.json?fileKey=`) はレコードの値の `fileKey` だけで、閲覧できないアプリ・無い `fileKey` は 404 (`GAIA_BL01`)。一時保管領域のファイルは消しません (実物は 3 日)。
+  初期データの添付の中身は `mock content of <ファイル名>` の文字です。テストからは `Uploads` (一時保管領域)・`GetFileContent(fileKey)` で中身を確かめられます。
+  これらの形 (エラーの返り方・`fileKey` の振り方) は実物で確かめたものではありません
 - **権限**: アプリ単位の閲覧・追加・編集・削除だけです。レコード・フィールドのアクセス権、アプリ管理の権限、IP 制限、Basic 認証、OAuth、セッション認証はありません
 - **呼び出しの制限**: 同時接続数・1 日の回数・要求の大きさの制限は再現しません。障害 (5xx・切断・遅延) はテストから仕込んだときだけ起きます
 - **フォームの設定**: `fields.json` の各フィールドの付帯情報 (`minLength`・`unit`・`align` など) はモックが決めた固定の値です。`lang` などの引数は無視します。プレビューの設定 (`preview/app/form/fields.json`) はありません

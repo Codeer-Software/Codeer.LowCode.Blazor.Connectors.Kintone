@@ -10,6 +10,7 @@ kintone をデータソースの 1 つとして登録すると、DB のテーブ
 - テーブル (サブテーブル) は親のモジュールの一覧として、親と一緒に読み書き
 - 楽観ロックは kintone のリビジョンで、kintone が古い版の更新・削除を弾く
 - kintone のアカウントでアプリにログインする部品 (アカウントの確認) つき
+- 添付ファイルの一覧・ダウンロード・追加・削除ができるフィールドつき
 - kintone 側へのプラグインやカスタマイズの配備は不要
 
 > この版は実物の kintone での動作確認がまだ済んでいません。検証用の kintone の環境で動作を確かめてから使ってください。
@@ -17,6 +18,7 @@ kintone をデータソースの 1 つとして登録すると、DB のテーブ
 ## 使い方
 
 アプリ (サーバー) に `Codeer.LowCode.Blazor.Connectors.Kintone.Server`、デザイナに `Codeer.LowCode.Blazor.Connectors.Kintone.Designer` を追加します。
+添付ファイルのフィールドを使うときは、アプリの画面のプロジェクトに `Codeer.LowCode.Blazor.Connectors.Kintone` も追加します (組み込みは [Docs/Kintone.md](Docs/Kintone.md) の「添付ファイル」)。
 
 データソースに kintone の接続を書き、
 
@@ -31,10 +33,11 @@ kintone をデータソースの 1 つとして登録すると、DB のテーブ
 アプリとデザイナの `IDbAccessor` を包みます。
 
 ```csharp
-//アプリ (サーバー)
-var kintone = new KintoneDbAccessor(new DbAccessor(dataSources), KintoneConnection.FromDataSources(dataSources));
+//アプリ (サーバー。アプリの定義は、デザインと一緒に配られたメタ情報のファイルから読む)
+var kintone = new KintoneDbAccessor(new DbAccessor(dataSources), KintoneConnection.FromDataSources(dataSources),
+    KintoneMetadataFile.FromDeployedDesign(designFileDirectory));
 
-//デザイナ (アプリの定義は、Tools > kintone のメタ情報を更新 で保存したファイルから読む)
+//デザイナ (アプリの定義は、Tools > kintone のメタ情報を更新 でプロジェクトに保存したファイルから読む)
 var kintone = KintoneDesignerInitializer.CreateDbAccessor(new DbAccessor(dataSources), dataSources);
 ```
 
@@ -49,9 +52,9 @@ kintone の環境が無くても、手元で動くモック (`dotnet run --proje
 ## 制限
 
 - kintone への保存はレコード 1 件ごとに確定し、ロールバックしません
-- 集計は条件に合うレコードを読んでコネクターが計算します (読む件数に上限があります)。日付を年・月などの期間でまとめる集計は使えません
+- 集計は条件に合うレコードを読んでコネクターが計算します (読む件数に上限があります)
 - SQL・ストアドプロシージャ (ExecuteSqlField・QueryField) は使えません
-- 添付ファイルの転送・プロセス管理の操作・コメントは扱えません
+- プロセス管理の操作・コメントは扱えません
 
 ほかの制限は [Docs/Kintone.md](Docs/Kintone.md) の「制限」にあります。
 

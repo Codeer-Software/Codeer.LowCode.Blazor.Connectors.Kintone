@@ -14,7 +14,11 @@ namespace Kintone.Mock
         /// <summary>受けたままのパスとクエリ (記録用)。</summary>
         public string PathAndQuery { get; init; } = string.Empty;
 
+        /// <summary>本文 (UTF-8 の文字)。multipart の本文 (ファイルのアップロード) は null で、<see cref="BodyBytes"/> にある。</summary>
         public string? Body { get; init; }
+
+        /// <summary>本文のバイト列 (無ければ null)。ファイルのアップロード (multipart/form-data) で使う。</summary>
+        public byte[]? BodyBytes { get; init; }
 
         /// <summary>Content-Type ヘッダー (無ければ null)。</summary>
         public string? ContentType { get; init; }
@@ -34,6 +38,8 @@ namespace Kintone.Mock
     {
         public int Status { get; init; }
         public string? Body { get; init; }
+        /// <summary>バイト列の本文 (ファイルのダウンロード)。あれば Body の代わりに返す (ContentType に charset を付けない)。</summary>
+        public byte[]? BinaryBody { get; init; }
         public string ContentType { get; init; } = "application/json";
         public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
         public bool Abort { get; init; }
@@ -66,8 +72,11 @@ namespace Kintone.Mock
         /// <summary>デコードしたクエリ (同じ名前が複数あれば全部)。</summary>
         public IReadOnlyList<KeyValuePair<string, string>> Query { get; init; } = Array.Empty<KeyValuePair<string, string>>();
 
-        /// <summary>本文 (無ければ null)。</summary>
+        /// <summary>本文 (無ければ null)。ファイルのアップロード (multipart) は null で、<see cref="UploadedFileName"/> に名前がある。</summary>
         public string? Body { get; init; }
+
+        /// <summary>ファイルのアップロード (POST file.json) で送られたファイル名 (無ければ null)。</summary>
+        public string? UploadedFileName { get; set; }
 
         /// <summary>X-Cybozu-API-Token に付いていたトークン (カンマで分けたもの。無ければ空)。</summary>
         public IReadOnlyList<string> ApiTokens { get; init; } = Array.Empty<string>();
